@@ -20,8 +20,7 @@ interface
   {$DEFINE WINDOWS}
 {$ELSE}
   {$DEFINE LINUX}
-{$ENDIF}
-
+{$ENDIF}
 type
   TCoreProc = procedure;
 
@@ -630,11 +629,12 @@ var
 {$REGION 'Linux System'}
 {$IFDEF LINUX}
 // Linux API -------------------------------------------------------------------
-{$linklib GL}
+{$LINKLIB GL}
+{$LINKLIB X11}
+{$LINKLIB Xrandr}
+{$LINKLIB dl}
 const
-  LibLoad   = 'libdl.so.2';
-  libXrandr = 'Xrandr';
-  opengl32  = 'libGL.so.1';
+  opengl32  = 'libGL.so';
 
   KeyPressMask       = 1 shl 0;
   KeyReleaseMask     = 1 shl 1;
@@ -766,6 +766,7 @@ type
   procedure glXWaitX; cdecl; external;
   function XCreatePixmap(Display: Pointer; W: LongWord; Width, Height, Depth: LongWord): LongWord; cdecl; external;
   function XCreatePixmapCursor(Display: Pointer; Source, Mask: LongWord; FColor, BColor: Pointer; X, Y: LongWord): LongWord; cdecl; external;
+  function XLookupKeysym(para1: Pointer; para2: LongInt): LongWord; cdecl; external;
   function XDefineCursor(Display: Pointer; W: LongWord; Cursor: LongWord): Longint; cdecl; external;                             
   function XWarpPointer(Display: Pointer; SrcW, DestW: LongWord; SrcX, SrcY: LongInt; SrcWidth, SrcHeight: LongWord; DestX, DestY: LongInt): LongInt; cdecl; external;
   function XQueryPointer(Display: Pointer; W: LongWord; RootRetun, ChildReturn, RootXReturn, RootYReturn, WinXReturn, WinYReturn, MaskReturn: Pointer): Boolean; cdecl; external;
@@ -773,12 +774,12 @@ type
   function XGrabPointer(Display: Pointer; GrabWindow: LongWord; OwnerEvents: Boolean; EventMask: LongWord; PointerMode, KeyboardMode: LongInt; ConfineTo, Cursor, Time: LongWord): LongInt; cdecl; external;
   function XUngrabKeyboard(Display: Pointer; Time: LongWord): LongInt; cdecl; external;
   function XUngrabPointer(Display: Pointer; Time: LongWord): LongInt; cdecl; external;
-  procedure XRRFreeScreenConfigInfo(config: Pointer); cdecl; external libXrandr;
-  function XRRGetScreenInfo(dpy: Pointer; draw: LongWord): Pointer; cdecl; external libXrandr;
-  function XRRSetScreenConfigAndRate(dpy: Pointer; config: Pointer; draw: LongWord; size_index: LongInt; rotation: Word; rate: Word; timestamp: LongWord): LongInt; cdecl; external libXrandr;
-  function XRRConfigCurrentConfiguration(config: Pointer; rotation: Pointer): Word; cdecl; external libXrandr;
-  function XRRRootToScreen(dpy: Pointer; root: LongWord): LongInt; cdecl; external libXrandr;
-  function XRRSizes(dpy: Pointer; screen: LongInt; nsizes: PLongInt): PXRRScreenSize; cdecl; external libXrandr;
+  procedure XRRFreeScreenConfigInfo(config: Pointer); cdecl; external;
+  function XRRGetScreenInfo(dpy: Pointer; draw: LongWord): Pointer; cdecl; external;
+  function XRRSetScreenConfigAndRate(dpy: Pointer; config: Pointer; draw: LongWord; size_index: LongInt; rotation: Word; rate: Word; timestamp: LongWord): LongInt; cdecl; external;
+  function XRRConfigCurrentConfiguration(config: Pointer; rotation: Pointer): Word; cdecl; external;
+  function XRRRootToScreen(dpy: Pointer; root: LongWord): LongInt; cdecl; external;
+  function XRRSizes(dpy: Pointer; screen: LongInt; nsizes: PLongInt): PXRRScreenSize; cdecl; external;
   function gettimeofday(out timeval: TTimeVal; timezone: Pointer): LongInt; cdecl; external;
 
   function glXChooseVisual(dpy: Pointer; screen: Integer; attribList: Pointer): PXVisualInfo; cdecl; external;
@@ -788,9 +789,9 @@ type
   procedure glXCopyContext(dpy: Pointer; src, dst: Pointer; mask: LongWord); cdecl; external;
   procedure glXSwapBuffers(dpy: Pointer; drawable: LongWord); cdecl; external;
 
-  function dlopen(Name: PAnsiChar; Flags: LongInt): LongWord; cdecl; external LibLoad;
-  function dlsym(Lib: LongWord; Name: PAnsiChar): Pointer; cdecl; external LibLoad;
-  function dlclose(Lib: LongWord): LongInt; cdecl; external LibLoad;
+  function dlopen(Name: PAnsiChar; Flags: LongInt): LongWord; cdecl; external;
+  function dlsym(Lib: LongWord; Name: PAnsiChar): Pointer; cdecl; external;
+  function dlclose(Lib: LongWord): LongInt; cdecl; external;
 
 function LoadLibraryA(Name: PAnsiChar): LongWord;
 begin
@@ -1277,16 +1278,16 @@ begin
 end;
 {$ENDIF}
 {$IFDEF LINUX}
-procedure WndProc(Event: TXEvent);
+procedure WndProc(var Event: TXEvent);
 
-  function ToInputKey(Value: LongInt): TInputKey;
+  function ToInputKey(Value: LongWord): TInputKey;
   const
-    KeyCodes : array [KK_PLUS..KK_DEL] of Byte =
-      (21, 20, 49,
-       19, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-       38, 56, 54, 40, 26, 41, 42, 43, 31, 44, 45, 46, 58, 57, 32, 33, 24, 27, 39, 28, 30, 55, 25, 53, 29, 52,
-       67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 95, 96,
-       9, 36, 22, 23, 50, 37, 64, 65, 99, 105, 103, 97, 100, 98, 102, 104, 106, 107);
+    KeyCodes : array [KK_PLUS..KK_DEL] of Word =
+      ($3D, $2D, $60,
+       $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
+       $61, $62, $63, $64, $65, $66, $67, $68, $69, $6A, $6B, $6C, $6D, $6E, $6F, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A,
+       $FFBE, $FFBF, $FFC0, $FFC1, $FFC2, $FFC3, $FFC4, $FFC5, $FFC6, $FFC7, $FFC8, $FFC9,
+       $FF1B, $FF0D, $FF08, $FF09, $FFE1, $FFE3, $FFE9, $20, $FF55, $FF56, $FF57, $FF50, $FF51, $FF52, $FF53, $FF54, $FF63, $FFFF);
   var
     Key : TInputKey;
   begin
@@ -1325,7 +1326,7 @@ begin
     KeyPress, KeyRelease :
       with Event.xkey do
       begin
-        Input.SetState(ToInputKey(KeyCode), Event._type = KeyPress);
+        Input.SetState(ToInputKey(XLookupKeysym(@Event, 0)), Event._type = KeyPress);
         if (state and 8 <> 0) and (KeyCode = 36) and (Event._type = KeyPress) then // Alt + Enter
           Display.FullScreen := not Display.FullScreen;
       end;
@@ -1431,6 +1432,7 @@ begin
   RC := wglCreateContext(DC);
   wglMakeCurrent(DC, RC);
   Render.Init;
+  FFPSTime := Render.Time;
 end;
 {$ENDIF}
 {$IFDEF LINUX}
@@ -1474,6 +1476,7 @@ begin
   DefSizeIdx := XRRConfigCurrentConfiguration(ScrConfig, @Rot);
 
   Render.Init;
+  FFPSTime := Render.Time;
 end;
 {$ENDIF}
 
@@ -1587,9 +1590,10 @@ begin
   XSizeHint.max_h := Height;  
   XSetWMNormalHints(XDisp, Handle, @XSizeHint);
   XSetWMProtocols(XDisp, Handle, @WM_DESTROY, 1);    
+  Caption := FCaption;
 
   glXMakeCurrent(XDisp, Handle, XContext);
-
+ 
   XMapWindow(XDisp, Handle);
   glXWaitX;
   if FFullScreen Then
