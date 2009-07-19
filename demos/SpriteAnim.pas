@@ -1,11 +1,16 @@
-program SpriteAnim;
+unit SpriteAnim;
+{===========================================}
+{         Sprite Animation Demo             }
+{-------------------------------------------}
+{ Controls: Left, Right, Left Mouse Button  }
+{===========================================}
 
-{$APPTYPE CONSOLE}
+interface
 
 uses
-  CoreX;
+  Demos, CoreX;
 
-{$R icon.res}
+implementation
 
 var
   Hero      : TSprite;
@@ -13,10 +18,8 @@ var
 
 procedure onInit;
 begin
-  Display.VSync := False;
-
 // Hero sprite
-  Hero.Load('media/zero.spr');
+  Hero.Load('media/zero.spr');
   Hero.Pos := Math.Vec2f(400, 300);
 // Explosion sprite
   Explosion.Load('media/explosion.spr');
@@ -38,9 +41,9 @@ begin
     if Input.Down[KK_RIGHT] xor Input.Down[KK_LEFT] then
     begin
       if Input.Down[KK_RIGHT] then
-        Scale.x := +1
+        Scale.x := +abs(Scale.x)
       else
-        Scale.x := -1;
+        Scale.x := -abs(Scale.x);
       Pos.x := Pos.x + Scale.x * Render.DeltaTime * 196;
       Play('run', True)
     end else
@@ -59,12 +62,9 @@ begin
 
   if Explosion.Playing then
     Explosion.Draw;
-
-  if Input.Hit[KK_ESC] then
-    CoreX.Quit;
 end;
 
-begin
-//  ReportMemoryLeaksOnShutdown := True;
-  CoreX.Start(@onInit, @onFree, @onRender);
+initialization
+  RegUnit(@onInit, @onFree, @onRender);
+
 end.
