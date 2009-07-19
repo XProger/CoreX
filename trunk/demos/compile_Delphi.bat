@@ -14,5 +14,5 @@ del /s *.ppu
 del /s *.bak
 del /s *.tmp
 
-"H:\Program Files\CodeGear\RAD Studio\6.0\bin\dcc32.exe" SpriteAnim.dpr -B -E..\ -U..\
+"H:\Program Files\CodeGear\RAD Studio\6.0\bin\dcc32.exe" CoreX_Demos.dpr -B -Ntmp\ -E..\ -U..\
 pause

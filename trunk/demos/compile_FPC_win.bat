@@ -14,5 +14,5 @@ del /s *.ppu
 del /s *.bak
 del /s *.tmp
 
-fpc SpriteAnim.dpr -Mobjfpc -Rintel -B -Nu -O3 -Sh -Si -Ur -Xt -Xs -XX -XS -CX -Sv -viewnh -Fu..\ -o..\SpriteAnim.exe
+fpc CoreX_Demos.dpr -Mobjfpc -Rintel -B -Nu -O3 -Sh -Si -Ur -Xt -Xs -XX -XS -CX -Sv -viewnh -FCtmp -FUtmp -Fu..\ -o..\CoreX_Demos.exe
 pause

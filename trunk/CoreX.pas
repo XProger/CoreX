@@ -18,9 +18,13 @@ interface
 
 {$IFDEF WIN32}
   {$DEFINE WINDOWS}
-{$ELSE}
-  {$DEFINE LINUX}
-{$ENDIF}
+{$ENDIF}
+
+{$IFDEF LINUX}
+  {$MACRO ON}
+  {$DEFINE stdcall := cdecl} // For TGL
+{$ENDIF}
+
 type
   TCoreProc = procedure;
 
@@ -159,17 +163,16 @@ type
   // Keyboard
     KK_NONE, KK_PLUS, KK_MINUS, KK_TILDE,
     KK_0, KK_1, KK_2, KK_3, KK_4, KK_5, KK_6, KK_7, KK_8, KK_9,
-    KK_A, KK_B, KK_C, KK_D, KK_E, KK_F, KK_G, KK_H, KK_I, KK_J, KK_K, KK_L, KK_M, 
+    KK_A, KK_B, KK_C, KK_D, KK_E, KK_F, KK_G, KK_H, KK_I, KK_J, KK_K, KK_L, KK_M,
     KK_N, KK_O, KK_P, KK_Q, KK_R, KK_S, KK_T, KK_U, KK_V, KK_W, KK_X, KK_Y, KK_Z,
     KK_F1, KK_F2, KK_F3, KK_F4, KK_F5, KK_F6, KK_F7, KK_F8, KK_F9, KK_F10, KK_F11, KK_F12,
-    KK_ESC, KK_ENTER, KK_BACK, KK_TAB, KK_SHIFT, KK_CTRL, KK_ALT, KK_SPACE, 
+    KK_ESC, KK_ENTER, KK_BACK, KK_TAB, KK_SHIFT, KK_CTRL, KK_ALT, KK_SPACE,
     KK_PGUP, KK_PGDN, KK_END, KK_HOME, KK_LEFT, KK_UP, KK_RIGHT, KK_DOWN, KK_INS, KK_DEL,
   // Mouse
     KM_1, KM_2, KM_3, KM_WHUP, KM_WHDN,
   // Joystick
     KJ_1, KJ_2, KJ_3, KJ_4, KJ_5, KJ_6, KJ_7, KJ_8, KJ_9, KJ_10, KJ_11, KJ_12, KJ_13, KJ_14, KJ_15, KJ_16
   );
-
 
   TMouseDelta = record
     X, Y, Wheel : LongInt;
@@ -183,7 +186,7 @@ type
     Pos   : TMousePos;
     Delta : TMouseDelta;
   end;
-  
+
   TJoyAxis = record
     X, Y, Z, R, U, V : LongInt;
   end;
@@ -206,6 +209,7 @@ type
     procedure Free;
     procedure Reset;
     procedure Update;
+    function Convert(KeyCode: Word): TInputKey;
     function GetDown(InputKey: TInputKey): Boolean;
     function GetHit(InputKey: TInputKey): Boolean;
     procedure SetState(InputKey: TInputKey; Value: Boolean);
@@ -369,8 +373,6 @@ type
     GL_TEXTURE_2D = $0DE1, GL_TEXTURE0 = $84C0, GL_TEXTURE_MAX_ANISOTROPY = $84FE, GL_MAX_TEXTURE_MAX_ANISOTROPY, GL_GENERATE_MIPMAP = $8191,
   // Compressed Textures
     GL_COMPRESSED_RGB_S3TC_DXT1 = $83F0, GL_COMPRESSED_RGBA_S3TC_DXT1, GL_COMPRESSED_RGBA_S3TC_DXT3, GL_COMPRESSED_RGBA_S3TC_DXT5,
-  // AA
-    WGL_SAMPLE_BUFFERS = $2041, WGL_SAMPLES, WGL_DRAW_TO_WINDOW = $2001, WGL_SUPPORT_OPENGL = $2010, WGL_DOUBLE_BUFFER, WGL_COLOR_BITS = $2014, WGL_DEPTH_BITS = $2022, WGL_STENCIL_BITS,
   // FBO
     GL_FRAMEBUFFER = $8D40, GL_RENDERBUFFER, GL_DEPTH_COMPONENT24 = $81A6, GL_COLOR_ATTACHMENT0 = $8CE0, GL_DEPTH_ATTACHMENT = $8D00, GL_FRAMEBUFFER_BINDING = $8CA6, GL_FRAMEBUFFER_COMPLETE = $8CD5,
   // Shaders
@@ -382,10 +384,6 @@ type
     GL_MAX_CONST = High(LongInt)
   );
 
-{$IFDEF LINUX}
-  {$MACRO ON}
-  {$DEFINE stdcall := cdecl}
-{$ENDIF}
   TGL = object
   private
     Lib : LongWord;
@@ -441,9 +439,6 @@ type
     Ortho           : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     Frustum         : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
   end;
-{$IFDEF LINUX}
-  {$MACRO OFF}
-{$ENDIF}  
 {$ENDREGION}
 
 var
@@ -535,12 +530,8 @@ type
   TJoyInfo = packed record
     dwSize      : LongWord;
     dwFlags     : LongWord;
-    wXpos       : LongWord;
-    wYpos       : LongWord;
-    wZpos       : LongWord;
-    wRpos       : LongWord;
-    wUpos       : LongWord;
-    wVpos       : LongWord;
+    wX, wY, wZ  : LongWord;
+    wR, wU, wV  : LongWord;
     wButtons    : LongWord;
     dwButtonNum : LongWord;
     dwPOV       : LongWord;
@@ -552,11 +543,8 @@ const
   user32              = 'user32.dll';
   gdi32               = 'gdi32.dll';
   opengl32            = 'opengl32.dll';
-  winmm               = 'winmm.dll';  
+  winmm               = 'winmm.dll';
   WND_CLASS           = 'CCoreX';
-  WS_CAPTION          = $C00000;
-  WS_MINIMIZEBOX      = $20000;
-  WS_SYSMENU          = $80000;
   WS_VISIBLE          = $10000000;
   WM_DESTROY          = $0002;
   WM_ACTIVATEAPP      = $001C;
@@ -618,6 +606,25 @@ const
   function joyGetDevCapsA(uJoyID: LongWord; lpCaps: Pointer; uSize: LongWord): LongWord; stdcall; external winmm;
   function joyGetPosEx(uJoyID: LongWord; lpInfo: Pointer): LongWord; stdcall; external winmm;
 
+const
+  PFDAttrib : array [0..17] of LongWord = (
+    $2042,  0, // WGL_SAMPLES
+    $2041,  1, // WGL_SAMPLE_BUFFERS
+    $2001,  1, // WGL_DRAW_TO_WINDOW
+    $2010,  1, // WGL_SUPPORT_OPENGL
+    $2011,  1, // WGL_DOUBLE_BUFFER
+    $2014, 32, // WGL_COLOR_BITS
+    $2022, 24, // WGL_DEPTH_BITS
+    $2023,  8, // WGL_STENCIL_BITS
+    0, 0);
+
+  KeyCodes : array [KK_PLUS..KK_DEL] of Word =
+     ($BB, $BD, $C0,
+      $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
+      $41, $42, $43, $44, $45, $46, $47, $48, $49, $4A, $4B, $4C, $4D, $4E, $4F, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $5A,
+      $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A, $7B,
+      $1B, $03, $08, $09, $10, $11, $12, $20, $21, $22, $23, $24, $25, $26, $27, $28, $2D, $2E);
+
 var
   DC, RC   : LongWord;
   TimeFreq : Int64;
@@ -636,45 +643,15 @@ var
 const
   opengl32  = 'libGL.so';
 
-  KeyPressMask       = 1 shl 0;
-  KeyReleaseMask     = 1 shl 1;
-  ButtonPressMask    = 1 shl 2;
-  ButtonReleaseMask  = 1 shl 3;
-  PointerMotionMask  = 1 shl 6;
-  ButtonMotionMask   = 1 shl 13;
-  FocusChangeMask    = 1 shl 21;
-
-  CWOverrideRedirect = 1 shl 9;
-  CWEventMask        = 1 shl 11;
-  CWColormap         = 1 shl 13;
-  CWCursor           = 1 shl 14;
-
-  PPosition = 1 shl 2;
-  PMinSize  = 1 shl 4;
-  PMaxSize  = 1 shl 5;
-
   KeyPress        = 2;
-  KeyRelease      = 3;
   ButtonPress     = 4;
-  ButtonRelease   = 5;
   FocusIn         = 9;
-  FocusOut        = 10; 
   ClientMessage   = 33;
-
-  GLX_BUFFER_SIZE    = 2;
-  GLX_RGBA           = 4;
-  GLX_DOUBLEBUFFER   = 5;
-  GLX_DEPTH_SIZE     = 12;
-  GLX_STENCIL_SIZE   = 13;
-  GLX_SAMPLES        = 100001;
-
-  KEYBOARD_MASK = KeyPressMask or KeyReleaseMask;
-  MOUSE_MASK = ButtonPressMask or ButtonReleaseMask or ButtonMotionMask or PointerMotionMask;
 
 type
   PXSeLongWordAttributes = ^TXSeLongWordAttributes;
   TXSeLongWordAttributes = record
-    background_pixmap     : LongWord; 
+    background_pixmap     : LongWord;
     background_pixel      : LongWord;
     SomeData1             : array [0..6] of LongInt;
     save_under            : Boolean;
@@ -694,11 +671,7 @@ type
     SomeData1     : array [0..5] of LongInt;
   end;
 
-  TXColor = record
-    pixel      : LongWord;
-    r, g, b    : Word;     
-    flags, pad : AnsiChar;
-  end;
+  TXColor = array [0..11] of Byte;
 
   PXSizeHints = ^TXSizeHints;
   TXSizeHints = record
@@ -743,7 +716,7 @@ type
   end;
 
   TTimeVal = record
-    tv_sec  : LongInt; 
+    tv_sec  : LongInt;
     tv_usec : LongInt;
   end;
 
@@ -767,7 +740,7 @@ type
   function XCreatePixmap(Display: Pointer; W: LongWord; Width, Height, Depth: LongWord): LongWord; cdecl; external;
   function XCreatePixmapCursor(Display: Pointer; Source, Mask: LongWord; FColor, BColor: Pointer; X, Y: LongWord): LongWord; cdecl; external;
   function XLookupKeysym(para1: Pointer; para2: LongInt): LongWord; cdecl; external;
-  function XDefineCursor(Display: Pointer; W: LongWord; Cursor: LongWord): Longint; cdecl; external;                             
+  function XDefineCursor(Display: Pointer; W: LongWord; Cursor: LongWord): Longint; cdecl; external;
   function XWarpPointer(Display: Pointer; SrcW, DestW: LongWord; SrcX, SrcY: LongInt; SrcWidth, SrcHeight: LongWord; DestX, DestY: LongInt): LongInt; cdecl; external;
   function XQueryPointer(Display: Pointer; W: LongWord; RootRetun, ChildReturn, RootXReturn, RootYReturn, WinXReturn, WinYReturn, MaskReturn: Pointer): Boolean; cdecl; external;
   function XGrabKeyboard(Display: Pointer; GrabWindow: LongWord; OwnerEvents: Boolean; PointerMode, KeyboardMode: LongInt; Time: LongWord): LongInt; cdecl; external;
@@ -806,7 +779,24 @@ end;
 function GetProcAddress(LibHandle: LongWord; ProcName: PAnsiChar): Pointer;
 begin
   Result := dlsym(LibHandle, ProcName);
-end; 
+end;
+
+const
+  PFDAttrib : array [0..11] of LongWord = (
+    $0186A1,  0, // GLX_SAMPLES
+    $000005, {1,} // GLX_DOUBLEBUFFER
+    $000004,  1, // GLX_RGBA
+    $000002, 32, // GLX_BUFFER_SIZE
+    $00000C, 24, // GLX_DEPTH_SIZE
+    $00000D,  8, // GLX_STENCIL_SIZE
+    0);
+
+  KeyCodes : array [KK_PLUS..KK_DEL] of Word =
+    ($3D, $2D, $60,
+     $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
+     $61, $62, $63, $64, $65, $66, $67, $68, $69, $6A, $6B, $6C, $6D, $6E, $6F, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A,
+     $FFBE, $FFBF, $FFC0, $FFC1, $FFC2, $FFC3, $FFC4, $FFC5, $FFC6, $FFC7, $FFC8, $FFC9,
+     $FF1B, $FF0D, $FF08, $FF09, $FFE1, $FFE3, $FFE9, $20, $FF55, $FF56, $FF57, $FF50, $FF51, $FF52, $FF53, $FF54, $FF63, $FFFF);
 
 var
   XDisp       : Pointer;
@@ -1060,6 +1050,8 @@ function TResManager.Delete(Idx: LongInt): Boolean;
 begin
   Dec(Items[Idx].Ref);
   Result := Items[Idx].Ref <= 0;
+  if Result then
+    Items[Idx].Name := '';
 end;
 {$ENDREGION}
 
@@ -1205,34 +1197,6 @@ end;
 {$REGION 'TDisplay'}
 {$IFDEF WINDOWS}
 function WndProc(Hwnd, Msg: LongWord; WParam, LParam: LongInt): LongInt; stdcall;
-
-  function ToInputKey(Value: LongInt): TInputKey;
-  begin
-    case Value of
-      16..18   : // KK_SHIFT..KK_ALT
-        Result := TInputKey(Ord(KK_SHIFT) + (Value - 16));
-      32..40   : // KK_SPACE..KK_DOWN
-        Result := TInputKey(Ord(KK_SPACE) + (Value - 32));
-      48..57   : // numbers
-        Result := TInputKey(Ord(KK_0) + (Value - 48));
-      65..90   : // alphabet
-        Result := TInputKey(Ord(KK_A) + (Value - 65));
-      112..123 : // Functional Keys (F1..F12)
-        Result := TInputKey(Ord(KK_F1) + (Value - 112));
-      8   : Result := KK_BACK;
-      9   : Result := KK_TAB;
-      13  : Result := KK_ENTER;
-      27  : Result := KK_ESC;
-      45  : Result := KK_INS;
-      46  : Result := KK_DEL;
-      187 : Result := KK_PLUS;
-      189 : Result := KK_MINUS;
-      192 : Result := KK_TILDE;
-    else
-      Result := KK_NONE;
-    end;
-  end;
-
 begin
   Result := 0;
   case Msg of
@@ -1258,7 +1222,7 @@ begin
   // Keyboard
     WM_KEYDOWN, WM_KEYDOWN + 1, WM_SYSKEYDOWN, WM_SYSKEYDOWN + 1 :
     begin
-      Input.SetState(ToInputKey(WParam), (Msg = WM_KEYDOWN) or (Msg = WM_SYSKEYDOWN));
+      Input.SetState(Input.Convert(WParam), (Msg = WM_KEYDOWN) or (Msg = WM_SYSKEYDOWN));
       if (Msg = WM_SYSKEYDOWN) and (WParam = 13) then // Alt + Enter
         Display.FullScreen := not Display.FullScreen;
     end;
@@ -1279,39 +1243,18 @@ end;
 {$ENDIF}
 {$IFDEF LINUX}
 procedure WndProc(var Event: TXEvent);
-
-  function ToInputKey(Value: LongWord): TInputKey;
-  const
-    KeyCodes : array [KK_PLUS..KK_DEL] of Word =
-      ($3D, $2D, $60,
-       $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
-       $61, $62, $63, $64, $65, $66, $67, $68, $69, $6A, $6B, $6C, $6D, $6E, $6F, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A,
-       $FFBE, $FFBF, $FFC0, $FFC1, $FFC2, $FFC3, $FFC4, $FFC5, $FFC6, $FFC7, $FFC8, $FFC9,
-       $FF1B, $FF0D, $FF08, $FF09, $FFE1, $FFE3, $FFE9, $20, $FF55, $FF56, $FF57, $FF50, $FF51, $FF52, $FF53, $FF54, $FF63, $FFFF);
-  var
-    Key : TInputKey;
-  begin
-    Result := KK_NONE;
-    for Key := Low(KeyCodes) to High(KeyCodes) do
-      if KeyCodes[Key] = Value then
-      begin
-        Result := Key;
-        break;
-      end
-  end;
-
 var
   Key : TInputKey;
 begin
   case Event._type of
   // Close window
     ClientMessage :
-      if (Event.xclient.message_type = WM_PROTOCOLS) and 
+      if (Event.xclient.message_type = WM_PROTOCOLS) and
          (LongWord(Event.xclient.data.l[0]) = WM_DESTROY) then
         Quit;
   // Activation / Deactivation
-    FocusIn, FocusOut :
-      with Display do 
+    FocusIn, FocusIn + 1 :
+      with Display do
         if (Event.xwindow = Handle) and (Active <> (Event._type = FocusIn)) then
         begin
           FActive := Event._type = FocusIn;
@@ -1323,15 +1266,15 @@ begin
           Input.Reset;
         end;
   // Keyboard
-    KeyPress, KeyRelease :
+    KeyPress, KeyPress + 1 :
       with Event.xkey do
       begin
-        Input.SetState(ToInputKey(XLookupKeysym(@Event, 0)), Event._type = KeyPress);
+        Input.SetState(Input.Convert(XLookupKeysym(@Event, 0)), Event._type = KeyPress);
         if (state and 8 <> 0) and (KeyCode = 36) and (Event._type = KeyPress) then // Alt + Enter
           Display.FullScreen := not Display.FullScreen;
       end;
   // Mouse
-    ButtonPress, ButtonRelease :  
+    ButtonPress, ButtonPress + 1 :
       begin
         case Event.xkey.KeyCode of
           1 : Key := KM_1;
@@ -1347,8 +1290,8 @@ begin
           case Key of
             KM_WHUP : Inc(Input.Mouse.Delta.Wheel);
             KM_WHDN : Dec(Input.Mouse.Delta.Wheel);
-          end;        
-      end;      
+          end;
+      end;
   end;
 end;
 {$ENDIF}
@@ -1359,16 +1302,6 @@ type
   TwglChoosePixelFormatARB = function (DC: LongWord; const piList, pfFList: Pointer; nMaxFormats: LongWord; piFormats, nNumFormats: Pointer): Boolean; stdcall;
 const
   AttribF : array [0..1] of Single = (0, 0);
-  AttribI : array [0..17] of TGLConst = (
-    WGL_SAMPLES,        GL_ZERO,
-    WGL_DRAW_TO_WINDOW, GL_TRUE,
-    WGL_SUPPORT_OPENGL, GL_TRUE,
-    WGL_SAMPLE_BUFFERS, GL_TRUE,
-    WGL_DOUBLE_BUFFER,  GL_TRUE,
-    WGL_COLOR_BITS,     TGLConst(32),
-    WGL_DEPTH_BITS,     TGLConst(24),
-    WGL_STENCIL_BITS,   TGLConst(8),
-    GL_ZERO, GL_ZERO);
 var
   WndClass : TWndClassEx;
   PFD      : TPixelFormatDescriptor;
@@ -1403,7 +1336,7 @@ begin
 // Choise multisample format (OpenGL AntiAliasing)
   if FAntiAliasing <> aa0x then
   begin
-    LongWord(Pointer(@AttribI[1])^) := 1 shl (Ord(FAntiAliasing) - 1); // Set num WGL_SAMPLES
+    LongWord(Pointer(@PFDAttrib[1])^) := 1 shl (Ord(FAntiAliasing) - 1); // Set num WGL_SAMPLES
   // Temp window
     Handle := CreateWindowExA(0, 'EDIT', nil, 0, 0, 0, 0, 0, 0, 0, 0, nil);
     DC := GetDC(Handle);
@@ -1412,7 +1345,7 @@ begin
     wglMakeCurrent(DC, RC);
     ChoisePF := TwglChoosePixelFormatARB(wglGetProcAddress('wglChoosePixelFormatARB'));
     if @ChoisePF <> nil then
-      ChoisePF(DC, @AttribI, @AttribF, 1, @PFIdx, @PFCount);
+      ChoisePF(DC, @PFDAttrib, @AttribF, 1, @PFIdx, @PFCount);
     wglMakeCurrent(0, 0);
     wglDeleteContext(RC);
     ReleaseDC(Handle, DC);
@@ -1436,15 +1369,6 @@ begin
 end;
 {$ENDIF}
 {$IFDEF LINUX}
-const
-  XGLAttr : array [0..11] of LongWord = (
-    GLX_SAMPLES, 0,
-    GLX_RGBA, 1,
-    GLX_BUFFER_SIZE, 32,
-    GLX_DOUBLEBUFFER,
-    GLX_DEPTH_SIZE, 24,
-    GLX_STENCIL_SIZE, 8,
-    0);
 var
   Rot    : Word;
   Pixmap : LongWord;
@@ -1456,18 +1380,18 @@ begin
 // Init objects
   XDisp := XOpenDisplay(nil);
   XScr  := XDefaultScreen(XDisp);
-  LongWord(Pointer(@XGLAttr[1])^) := 1 shl (Ord(FAntiAliasing) - 1); // Set num GLX_SAMPLES
-  XVisual := glXChooseVisual(XDisp, XScr, @XGLAttr);
+  LongWord(Pointer(@PFDAttrib[1])^) := 1 shl (Ord(FAntiAliasing) - 1); // Set num GLX_SAMPLES
+  XVisual := glXChooseVisual(XDisp, XScr, @PFDAttrib);
   XRoot   := XRootWindow(XDisp, XVisual^.screen);
   Pixmap  := XCreatePixmap(XDisp, XRoot, 1, 1, 1);
   FillChar(Color, SizeOf(Color), 0);
   XWndAttr.cursor := 0;//XCreatePixmapCursor(XDisp, Pixmap, Pixmap, @Color, @Color, 0, 0);
   XWndAttr.background_pixel := XBlackPixel(XDisp, XScr);
   XWndAttr.colormap   := XCreateColormap(XDisp, XRoot, XVisual^.visual, 0);
-  XWndAttr.event_mask := KEYBOARD_MASK or MOUSE_MASK or FocusChangeMask;
+  XWndAttr.event_mask := $20204F; // Key | Button | Pointer | Focus
 // Set client messages
   WM_DESTROY   := XInternAtom(XDisp, 'WM_DELETE_WINDOW', True);
-  WM_PROTOCOLS := XInternAtom(XDisp, 'WM_PROTOCOLS', True);                              
+  WM_PROTOCOLS := XInternAtom(XDisp, 'WM_PROTOCOLS', True);
 // OpenGL Init
   XContext := glXCreateContext(XDisp, XVisual, nil, True);
 // Screen Settings
@@ -1498,7 +1422,7 @@ begin
     FullScreen := False;
   XRRFreeScreenConfigInfo(ScrConfig);
   Render.Free;
-// OpenGL 
+// OpenGL
   glXMakeCurrent(XDisp, 0, nil);
   XFree(XVisual);
   glXDestroyContext(XDisp, XContext);
@@ -1539,10 +1463,10 @@ var
   Rect  : TRect;
 begin
 // Change main window style
-  if FullScreen then
+  if FFullScreen then
     Style := 0
   else
-    Style := WS_CAPTION or WS_SYSMENU or WS_MINIMIZEBOX;
+    Style := $CA0000; // WS_CAPTION or WS_SYSMENU or WS_MINIMIZEBOX;
   SetWindowLongA(Handle, GWL_STYLE, Style or WS_VISIBLE);
   Rect.Left   := 0;
   Rect.Top    := 0;
@@ -1571,9 +1495,10 @@ begin
   glXWaitX;
 
   XWndAttr.override_redirect := FFullScreen;
-  Mask := CWColormap or CWEventMask or CWCursor;
   if FFullScreen then
-    Mask := Mask or CWOverrideRedirect; 
+    Mask := $6A00 // CWColormap or CWEventMask or CWCursor or CWOverrideRedirect
+  else
+    Mask := $6800; // without CWOverrideRedirect
 // Create new window
   Handle := XCreateWindow(XDisp, XRoot,
                           0, 0, Width, Height, 0,
@@ -1581,25 +1506,25 @@ begin
                           XVisual^.visual,
                           Mask, @XWndAttr);
 // Change size
-  XSizeHint.flags := PPosition or PMinSize or PMaxSize;
+  XSizeHint.flags := $34; // PPosition or PMinSize or PMaxSize;
   XSizeHint.x := 0;
   XSizeHint.y := 0;
   XSizeHint.min_w := Width;
   XSizeHint.min_h := Height;
   XSizeHint.max_w := Width;
-  XSizeHint.max_h := Height;  
+  XSizeHint.max_h := Height;
   XSetWMNormalHints(XDisp, Handle, @XSizeHint);
-  XSetWMProtocols(XDisp, Handle, @WM_DESTROY, 1);    
+  XSetWMProtocols(XDisp, Handle, @WM_DESTROY, 1);
   Caption := FCaption;
 
   glXMakeCurrent(XDisp, Handle, XContext);
- 
+
   XMapWindow(XDisp, Handle);
   glXWaitX;
   if FFullScreen Then
   begin
     XGrabKeyboard(XDisp, Handle, True, 1, 1, 0);
-    XGrabPointer(XDisp, Handle, True, ButtonPressMask, 1, 1, Handle, 0, 0);
+    XGrabPointer(XDisp, Handle, True, 4, 1, 1, Handle, 0, 0);
   end;
   gl.Viewport(0, 0, Width, Height);
   VSync := FVSync;
@@ -1744,7 +1669,10 @@ var
 
   function AxisValue(Value, Min, Max: LongWord): LongInt;
   begin
-    Result := Round((Value + Min) / (Max - Min) * 200 - 100);
+    if Max - Min <> 0 then
+      Result := Round((Value + Min) / (Max - Min) * 200 - 100)
+    else
+      Result := 0;
   end;
 {$ENDIF}
 {$IFDEF LINUX}
@@ -1798,12 +1726,12 @@ begin
       with JoyCaps, JoyInfo, Axis do
       begin
       // Axis
-        X := AxisValue(wXpos, wXmin, wXmax);
-        Y := AxisValue(wYpos, wYmin, wYmax);
-        if wCaps and JOYCAPS_HASZ > 0 then Z := AxisValue(wZpos, wZmin, wZmax);
-        if wCaps and JOYCAPS_HASR > 0 then R := AxisValue(wRpos, wRmin, wRmax);
-        if wCaps and JOYCAPS_HASU > 0 then U := AxisValue(wUpos, wUmin, wUmax);
-        if wCaps and JOYCAPS_HASV > 0 then V := AxisValue(wVpos, wVmin, wVmax);
+        X := AxisValue(wX, wXmin, wXmax);
+        Y := AxisValue(wY, wYmin, wYmax);
+        if wCaps and JOYCAPS_HASZ > 0 then Z := AxisValue(wZ, wZmin, wZmax);
+        if wCaps and JOYCAPS_HASR > 0 then R := AxisValue(wR, wRmin, wRmax);
+        if wCaps and JOYCAPS_HASU > 0 then U := AxisValue(wU, wUmin, wUmax);
+        if wCaps and JOYCAPS_HASV > 0 then V := AxisValue(wV, wVmin, wVmax);
       // Point-Of-View
         if (wCaps and JOYCAPS_HASPOV > 0) and (dwPOV and $FFFF <> $FFFF) then
           POV := dwPOV and $FFFF / 100;
@@ -1843,6 +1771,19 @@ begin
         end;
   end;
 {$ENDIF}
+end;
+
+function TInput.Convert(KeyCode: Word): TInputKey;
+var
+  Key : TInputKey;
+begin
+  for Key := Low(KeyCodes) to High(KeyCodes) do
+    if KeyCodes[Key] = KeyCode then
+    begin
+      Result := Key;
+      Exit;
+    end;
+  Result := KK_NONE;
 end;
 
 function TInput.GetDown(InputKey: TInputKey): Boolean;
