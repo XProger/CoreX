@@ -15,6 +15,7 @@ implementation
 var
   Hero      : TSprite;
   Explosion : TSprite;
+  Shot      : TSample;
 
 procedure onInit;
 begin
@@ -23,10 +24,12 @@ begin
   Hero.Pos := Math.Vec2f(400, 300);
 // Explosion sprite
   Explosion.Load('media/explosion.spr');
+  Shot := Sound.Load('media/explosion.wav');
 end;
 
 procedure onFree;
 begin
+  Shot.Free;
   Explosion.Free;
   Hero.Free;
 end;
@@ -58,6 +61,7 @@ begin
         Pos := Math.Vec2f(X, Display.Height - Y);
       Stop;
       Play('boom', False);
+      Shot.Play;
     end;
 
   if Explosion.Playing then
