@@ -5,7 +5,8 @@ program CoreX_Demos;
 uses
   CoreX,
   Demos,
-  SpriteAnim;
+  SpriteAnim,
+  GameRPG;
 
 {$IF DEFINED(WINDOWS) or DEFINED(WIN32)}
   {$APPTYPE CONSOLE}

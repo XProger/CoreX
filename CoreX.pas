@@ -32,6 +32,7 @@ type
 {$REGION 'Math'}
   TVec2f = record
     x, y : Single;
+    class operator Add(const v1, v2: TVec2f): TVec2f;
   end;
 
   TVec3f = record
@@ -46,13 +47,13 @@ type
     function Vec2f(x, y: Single): TVec2f; inline;
     function Vec3f(x, y, z: Single): TVec3f; inline;
     function Vec4f(x, y, z, w: Single): TVec4f; inline;
-    function Max(x, y: Single): Single; overload;
-    function Min(x, y: Single): Single; overload;
-    function Max(x, y: Integer): Integer; overload;
-    function Min(x, y: Integer): Integer; overload;
-    function Sign(x: Single): Integer;
-    function Ceil(const X: Extended): Integer;
-    function Floor(const X: Extended): Integer;
+    function Max(x, y: Single): Single; overload; inline;
+    function Min(x, y: Single): Single; overload; inline;
+    function Max(x, y: LongInt): LongInt; overload; inline;
+    function Min(x, y: LongInt): LongInt; overload; inline;
+    function Sign(x: Single): LongInt; inline;
+    function Ceil(const X: Extended): LongInt;
+    function Floor(const X: Extended): LongInt;
   end;
 {$ENDREGION}
 
@@ -224,6 +225,80 @@ type
   end;
 {$ENDREGION}
 
+// Sound -----------------------------------------------------------------------
+{$REGION 'Sound'}
+type
+  PDataArray = ^TDataArray;
+  TDataArray = array [0..1] of SmallInt;
+
+  TBufferData = record
+    L, R : SmallInt;
+  end;
+  PBufferArray = ^TBufferArray;
+  TBufferArray = array [0..1] of TBufferData;
+
+  PSample  = ^TSample;
+  PDevice  = ^TDevice;
+  PSound   = ^TSound;
+
+  PSampleRes = ^TSampleRes;
+  TSampleRes = record
+    Sound  : PSound;
+    Ref    : LongInt;
+    Name   : string;
+    Length : LongInt;
+    Data   : PDataArray;
+  end;
+
+  TSample = object
+  private
+    Res     : PSampleRes;
+    FVolume : LongInt;
+    procedure SetVolume(Value: LongInt);
+  public
+    procedure Free;
+    procedure Play(Loop: Boolean = False);
+    property Volume: LongInt read FVolume write SetVolume;
+  end;
+
+  TChannel = record
+    Sample  : PSample;
+    Offset  : LongInt;
+    Loop    : Boolean;
+    Playing : Boolean;
+    Length  : LongInt;
+    Data    : PDataArray;
+  end;
+
+  TDevice = object
+  private
+    FActive : Boolean;
+    FSound  : PSound;
+    WaveOut : LongInt;
+    Data    : Pointer;
+    procedure Init(Sound: PSound);
+    procedure Free;
+  public
+    property Active: Boolean read FActive;
+  end;
+
+  TSound = object
+  private
+    Device    : TDevice;
+    SampleRes : array of PSampleRes;
+    Channel   : array [0..63] of TChannel;
+    ChCount   : LongInt;
+    procedure Init;
+    procedure Free;
+    procedure Render(Data: PBufferArray);
+    procedure FreeRes(Res: PSampleRes);
+    procedure FreeChannel(Index: LongInt);
+    function AddChannel(const Ch: TChannel): Boolean;
+  public
+    function Load(const FileName: string): TSample;
+  end;
+{$ENDREGION}
+
 // Render ----------------------------------------------------------------------
 {$REGION 'Render'}
   TBlendType = (btNone, btNormal, btAdd, btMult);
@@ -233,6 +308,7 @@ type
     FDeltaTime : Single;
     OldTime    : LongInt;
     ResManager : TResManager;
+    FVOffset   : array [0..3] of TVec2f;
     procedure Init;
     procedure Free;
     function GeLongWord: LongInt;
@@ -240,9 +316,11 @@ type
     procedure SetDepthTest(Value: Boolean);
     procedure SetDepthWrite(Value: Boolean);
   public
-    procedure Clear(Color, Depth: Boolean);
+    procedure Clear(ClearColor, ClearDepth: Boolean);
+    procedure Color(R, G, B, A: Byte);
     procedure Set2D(Width, Height: LongInt);
     procedure Set3D(FOV: Single; zNear: Single = 0.1; zFar: Single = 1000);
+    procedure VOffset(const v1, v2, v3, v4: TVec2f);
     procedure Quad(x, y, w, h, s, t, sw, th: Single); inline;
     property Time: LongInt read GeLongWord;
     property DeltaTime: Single read FDeltaTime;
@@ -257,12 +335,14 @@ type
   TTexture = object
   private
     ResIdx : LongInt;
-    Width  : LongInt;
-    Height : LongInt;
+    FWidth  : LongInt;
+    FHeight : LongInt;
   public
     procedure Load(const FileName: string);
     procedure Free;
     procedure Enable(Channel: LongInt = 0);
+    property Width: LongInt read FWidth;
+    property Height: LongInt read FHeight;
   end;
 {$ENDREGION}
 
@@ -409,6 +489,7 @@ type
     StencilMask    : procedure (mask: LongWord); stdcall;
     Enable         : procedure (cap: TGLConst); stdcall;
     Disable        : procedure (cap: TGLConst); stdcall;
+    AlphaFunc      : procedure (func: TGLConst; factor: Single); stdcall;
     BlendFunc      : procedure (sfactor, dfactor: TGLConst); stdcall;
     StencilFunc    : procedure (func: TGLConst; ref: LongInt; mask: LongWord); stdcall;
     DepthFunc      : procedure (func: TGLConst); stdcall;
@@ -416,6 +497,7 @@ type
     Viewport       : procedure (x, y, width, height: LongInt); stdcall;
     Beginp         : procedure (mode: TGLConst); stdcall;
     Endp           : procedure;
+    Color4ub       : procedure (r, g, b, a: Byte); stdcall;
     Vertex2fv      : procedure (xyz: Pointer); stdcall;
     Vertex3fv      : procedure (xy: Pointer); stdcall;
     TexCoord2fv    : procedure (st: Pointer); stdcall;
@@ -447,6 +529,7 @@ var
   Utils   : TUtils;
   Display : TDisplay;
   Input   : TInput;
+  Sound   : TSound;
   Render  : TRender;
 
   procedure Start(PInit, PFree, PRender: TCoreProc);
@@ -538,6 +621,25 @@ type
     dwRes       : array [0..1] of LongWord;
   end;
 
+  TWaveFormatEx = packed record
+    wFormatTag      : Word;
+    nChannels       : Word;
+    nSamplesPerSec  : LongWord;
+    nAvgBytesPerSec : LongWord;
+    nBlockAlign     : Word;
+    wBitsPerSample  : Word;
+    cbSize          : Word;
+  end;
+
+  PWaveHdr = ^TWaveHdr;
+  TWaveHdr = record
+    lpData         : Pointer;
+    dwBufferLength : LongWord;
+    SomeData       : array [0..5] of LongWord;
+  end;
+
+  TRTLCriticalSection = array [0..5] of LongWord;
+
 const
   kernel32            = 'kernel32.dll';
   user32              = 'user32.dll';
@@ -565,6 +667,7 @@ const
   JOYCAPS_HASPOV      = $0010;
   JOYCAPS_POVCTS      = $0040;
   JOY_RETURNPOVCTS    = $0200;
+  WOM_DONE            = $3BD;
 
   function QueryPerformanceFrequency(out Freq: Int64): Boolean; stdcall; external kernel32;
   function QueryPerformanceCounter(out Count: Int64): Boolean; stdcall; external kernel32;
@@ -605,6 +708,16 @@ const
   function joyGetNumDevs: LongWord; stdcall; external winmm;
   function joyGetDevCapsA(uJoyID: LongWord; lpCaps: Pointer; uSize: LongWord): LongWord; stdcall; external winmm;
   function joyGetPosEx(uJoyID: LongWord; lpInfo: Pointer): LongWord; stdcall; external winmm;
+  procedure InitializeCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
+  procedure EnterCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
+  procedure LeaveCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
+  procedure DeleteCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
+  function waveOutOpen(WaveOut: Pointer; DeviceID: LongWord; Fmt, dwCallback, dwInstance: Pointer; dwFlags: LongWord): LongWord; stdcall; external winmm;
+  function waveOutClose(WaveOut: LongWord): LongWord; stdcall; external winmm;
+  function waveOutPrepareHeader(WaveOut: LongWord; WaveHdr: Pointer; uSize: LongWord): LongWord; stdcall; external winmm;
+  function waveOutUnprepareHeader(WaveOut: LongWord; WaveHdr: Pointer; uSize: LongWord): LongWord; stdcall; external winmm;
+  function waveOutWrite(WaveOut: LongWord; WaveHdr: Pointer; uSize: LongWord): LongWord; stdcall; external winmm;
+  function waveOutReset(WaveOut: LongWord): LongWord; stdcall; external winmm;
 
 const
   PFDAttrib : array [0..17] of LongWord = (
@@ -625,11 +738,17 @@ const
       $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A, $7B,
       $1B, $03, $08, $09, $10, $11, $12, $20, $21, $22, $23, $24, $25, $26, $27, $28, $2D, $2E);
 
+  SND_BUF_SIZE = 40 * 22050 * 4 div 1000; // 40 ms latency
+  SND_CHANNELS = 64;
+
 var
   DC, RC   : LongWord;
   TimeFreq : Int64;
   JoyCaps  : TJoyCaps;
   JoyInfo  : TJoyInfo;
+  SoundDF  : TWaveFormatEx;
+  SoundDB  : array [0..1] of TWaveHdr;
+  SoundCS  : TRTLCriticalSection;
 {$ENDIF}
 {$ENDREGION}
 
@@ -683,17 +802,16 @@ type
   end;
 
   TXClientMessageEvent = record
-    message_type: LongWord;
-    format: LongInt;
-    data: record l: array[0..4] of LongInt; end;
+    message_type : LongWord;
+    format       : LongInt;
+    data         : record l: array[0..4] of LongInt; end;
   end;
 
   TXKeyEvent = record
-    Root, Subwindow: LongWord;
-    Time : LongWord;
-    x, y, XRoot, YRoot : Integer;
-    State, KeyCode : LongWord;
-    SameScreen : Boolean;
+    Root, Subwindow, Time : LongWord;
+    x, y, XRoot, YRoot    : LongInt;
+    State, KeyCode        : LongWord;
+    SameScreen            : Boolean;
   end;
 
   PXEvent = ^TXEvent;
@@ -716,7 +834,7 @@ type
   end;
 
   TTimeVal = record
-    tv_sec  : LongInt;
+    tv_sec   : LongInt;
     tv_usec : LongInt;
   end;
 
@@ -755,7 +873,7 @@ type
   function XRRSizes(dpy: Pointer; screen: LongInt; nsizes: PLongInt): PXRRScreenSize; cdecl; external;
   function gettimeofday(out timeval: TTimeVal; timezone: Pointer): LongInt; cdecl; external;
 
-  function glXChooseVisual(dpy: Pointer; screen: Integer; attribList: Pointer): PXVisualInfo; cdecl; external;
+  function glXChooseVisual(dpy: Pointer; screen: LongInt; attribList: Pointer): PXVisualInfo; cdecl; external;
   function glXCreateContext(dpy: Pointer; vis: PXVisualInfo; shareList: Pointer; direct: Boolean): Pointer; cdecl; external;
   procedure glXDestroyContext(dpy: Pointer; ctx: Pointer); cdecl; external;
   function glXMakeCurrent(dpy: Pointer; drawable: LongWord; ctx: Pointer): Boolean; cdecl; external;
@@ -817,6 +935,14 @@ var
 {$ENDREGION}
 
 // Math ========================================================================
+{$REGION 'TVec2f'}
+class operator TVec2f.Add(const v1, v2: TVec2f): TVec2f;
+begin
+  Result.x := v1.x + v2.x;
+  Result.y := v1.y + v2.y;
+end;
+{$ENDREGION}
+
 {$REGION 'TMath'}
 function TMath.Vec2f(x, y: Single): TVec2f;
 begin
@@ -1815,9 +1941,278 @@ begin
 end;
 {$ENDREGION}
 
+// Sound =======================================================================
+{$REGION 'TSample'}
+{ TSample }
+procedure TSample.Free;
+begin
+  if Res <> nil then
+  begin
+    Dec(Res^.Ref);
+    if Res^.Ref <= 0 then
+      Res^.Sound^.FreeRes(Res);
+    Res := nil;
+  end;
+end;
+
+procedure TSample.Play(Loop: Boolean);
+var
+  Channel : TChannel;
+begin
+  if Res <> nil then
+  begin
+    Channel.Sample  := @Self;
+    Channel.Offset  := 0;
+    Channel.Loop    := Loop;
+    Channel.Playing := True;
+    Channel.Length  := Res^.Length;
+    Channel.Data    := Res^.Data;
+    Res^.Sound^.AddChannel(Channel);
+  end;
+end;
+
+procedure TSample.SetVolume(Value: LongInt);
+begin
+  FVolume := Math.Min(100, Math.Max(0, Value));
+end;
+{$ENDREGION}
+
+{$REGION 'TDevice'}
+{ TDevice }
+procedure FillProc(WaveOut, Msg: LongWord; Device: PDevice; WaveHdr: PWaveHdr; Param2: LongWord); stdcall;
+begin
+  if Device^.FActive then
+    if Msg = WOM_DONE then
+    begin
+      waveOutUnPrepareHeader(WaveOut, WaveHdr, SizeOf(TWaveHdr));
+      Device^.FSound^.Render(WaveHdr^.lpData);
+      waveOutPrepareHeader(WaveOut, WaveHdr, SizeOf(TWaveHdr));
+      waveOutWrite(WaveOut, WaveHdr, SizeOf(TWaveHdr));
+    end;
+end;
+
+procedure TDevice.Init(Sound: PSound);
+begin
+  FSound := Sound;
+  with SoundDF do
+  begin
+    wFormatTag      := 1;
+    nChannels       := 2;
+    nSamplesPerSec  := 22050;
+    wBitsPerSample  := 16;
+    cbSize          := SizeOf(SoundDF);
+    nBlockAlign     := wBitsPerSample div 8 * nChannels;
+    nAvgBytesPerSec := nSamplesPerSec * nBlockAlign * nChannels;
+  end;
+
+  if waveOutOpen(@WaveOut, $FFFFFFFF, @SoundDF, @FillProc, @Self, $30000) = 0 then
+  begin
+    FActive := True;
+    FillChar(SoundDB, SizeOf(SoundDB), 0);
+    Data := GetMemory(SND_BUF_SIZE * 2);
+  // Buffer 0
+    SoundDB[0].dwBufferLength := SND_BUF_SIZE;
+    SoundDB[0].lpData         := Data;
+    FillProc(WaveOut, WOM_DONE, @Self, @SoundDB[0], 0);
+  // Buffer 1
+    SoundDB[1].dwBufferLength := SND_BUF_SIZE;
+    SoundDB[1].lpData         := Pointer(LongWord(Data) + SND_BUF_SIZE);
+    FillProc(WaveOut, WOM_DONE, @Self, @SoundDB[1], 0);
+  end else
+    FActive := False;
+end;
+
+procedure TDevice.Free;
+begin
+  if FActive then
+  begin
+    FActive := False;
+    waveOutUnPrepareHeader(WaveOut, @SoundDB[0], SizeOf(TWaveHdr));
+    waveOutUnPrepareHeader(WaveOut, @SoundDB[1], SizeOf(TWaveHdr));
+    waveOutReset(WaveOut);
+    waveOutClose(WaveOut);
+    FreeMemory(Data);
+  end;
+end;
+{$ENDREGION}
+
+{$REGION 'TSound'}
+{ TSound }
+procedure TSound.Init;
+begin
+  InitializeCriticalSection(SoundCS);
+  Device.Init(@Self);
+end;
+
+procedure TSound.Free;
+begin
+  while Length(SampleRes) > 0 do
+    FreeRes(SampleRes[0]);
+  Device.Free;
+  DeleteCriticalSection(SoundCS);
+  inherited;
+end;
+
+procedure TSound.Render(Data: PBufferArray);
+const
+  SAMPLE_COUNT = SND_BUF_SIZE div 4;
+var
+  i, j, sidx : LongInt;
+  Amp : LongInt;
+  AmpData : array [0..SAMPLE_COUNT - 1] of record
+    L, R : LongInt;
+  end;
+begin
+  EnterCriticalSection(SoundCS);
+  if ChCount > 0 then
+  begin
+    FillChar(AmpData, SizeOf(AmpData), 0);
+  // Mix channels sample
+    for j := 0 to ChCount - 1 do
+      with Channel[j] do
+      begin
+        for i := 0 to SAMPLE_COUNT - 1 do
+        begin
+          sidx := Offset + i; // * Freq / 22050
+          if sidx >= Length then
+            if Loop then
+            begin
+              Offset := Offset - sidx;
+              sidx := 0;
+            end else
+            begin
+              Playing := False;
+              break;
+            end;
+          Amp := Sample^.Volume * Data^[sidx] div 100;
+  {
+  // Echo
+          if sidx > 200 * 22050 div 1000 then
+            Amp := Amp + Data^[sidx - 200 * 22050 div 1000] div 2;
+          if sidx > 400 * 22050 div 1000 then
+            Amp := Amp + Data^[sidx - 400 * 22050 div 1000] div 4;
+  // Low Pass filter
+          Amp := PAmp + Trunc(0.1 * (Amp - PAmp));
+          PAmp := Amp;
+  }
+          AmpData[i].L := AmpData[i].L + Amp;
+          AmpData[i].R := AmpData[i].R + Amp;
+        end;
+        Offset := sidx;
+      end;
+  // Normalize
+    for i := 0 to SAMPLE_COUNT - 1 do
+    begin
+      Data^[i].L := Math.Max(Low(SmallInt), Math.Min(High(SmallInt), AmpData[i].L));
+      Data^[i].R := Math.Max(Low(SmallInt), Math.Min(High(SmallInt), AmpData[i].R));
+    end;
+  end else
+    FillChar(Data^, SND_BUF_SIZE, 0);
+  LeaveCriticalSection(SoundCS);
+
+  i := 0;
+  while i < ChCount do
+    if not Channel[i].Playing then
+      FreeChannel(i)
+    else
+      Inc(i);
+end;
+
+procedure TSound.FreeRes(Res: PSampleRes);
+var
+  i, len : Integer;
+begin
+// Free sample channels
+  i := 0;
+  while i < ChCount do
+    if Channel[i].Sample^.Res = Res then
+      FreeChannel(i)
+    else
+      Inc(i);
+// Free sample
+  len := Length(SampleRes) - 1;
+  for i := 0 to len do
+    if SampleRes[i] = Res then
+    begin
+      if Res^.Data <> nil then
+        FreeMemory(Res^.Data);
+      Dispose(Res);
+      SampleRes[i] := SampleRes[len];
+      SetLength(SampleRes, len);
+      break;
+    end;
+end;
+
+procedure TSound.FreeChannel(Index: LongInt);
+begin
+  EnterCriticalSection(SoundCS);
+  ChCount := ChCount - 1;
+  Channel[Index] := Channel[ChCount];
+  LeaveCriticalSection(SoundCS);
+end;
+
+function TSound.AddChannel(const Ch: TChannel): Boolean;
+begin
+  Result := ChCount < Length(Channel);
+  if Result then
+  begin
+    EnterCriticalSection(SoundCS);
+    Channel[ChCount] := Ch;
+    Inc(ChCount);
+    LeaveCriticalSection(SoundCS);
+  end;
+end;
+
+function TSound.Load(const FileName: string): TSample;
+var
+  i : LongInt;
+  F : File;
+  Header : record
+    Some1 : array [0..4] of LongWord;
+    Fmt   : TWaveFormatEx;
+    Some2 : Word;
+    DLen  : LongWord;
+  end;
+begin
+  Result.Res    := nil;
+  Result.Volume := 100;
+// Get loaded sample
+  for i := 0 to Length(SampleRes) - 1 do
+    if SampleRes[i]^.Name = FileName then
+    begin
+      Inc(SampleRes[i]^.Ref);
+      Result.Res := SampleRes[i];
+      Exit;
+    end;
+// or load new
+  AssignFile(F, FileName);
+  Reset(F, 1);
+  BlockRead(F, Header, SizeOf(Header));
+  with Header, Fmt do
+    if (wBitsPerSample = 16) or (nChannels = 1) or (nSamplesPerSec = 22050) then
+    begin
+      New(Result.Res);
+      with Result.Res^ do
+      begin
+        Sound  := @Self;
+        Ref    := 1;
+        Name   := FileName;
+        Length := Header.DLen div nBlockAlign;
+        Data   := GetMemory(DLen);
+        BlockRead(F, Data^, DLen);
+      end;
+      SetLength(SampleRes, Length(SampleRes) + 1);
+      SampleRes[Length(SampleRes) - 1] := Result.Res;
+    end;
+  CloseFile(F);
+end;
+{$ENDREGION}
+
 // Render ======================================================================
 {$REGION 'TRender'}
 procedure TRender.Init;
+const
+  v : TVec2f = (x: 0; y: 0);
 begin
   gl.Init;
 {$IFDEF WINDOWS}
@@ -1827,9 +2222,17 @@ begin
   Blend := btNormal;
   ResManager.Init;
   gl.Enable(GL_TEXTURE_2D);
+  gl.Enable(GL_ALPHA_TEST);
+  gl.AlphaFunc(GL_GREATER, 0.0);
+  gl.Disable(GL_DEPTH_TEST);
+  gl.DepthMask(False);
+  gl.ColorMask(True, True, True, False);
+{
   Writeln('GL_VENDOR   : ', gl.GetString(GL_VENDOR));
   Writeln('GL_RENDERER : ', gl.GetString(GL_RENDERER));
   Writeln('GL_VERSION  : ', gl.GetString(GL_VERSION));
+}
+  VOffset(v, v, v, v);
 end;
 
 procedure TRender.Free;
@@ -1880,14 +2283,19 @@ begin
   gl.DepthMask(Value);
 end;
 
-procedure TRender.Clear(Color, Depth: Boolean);
+procedure TRender.Clear(ClearColor, ClearDepth: Boolean);
 var
   Mask : LongWord;
 begin
   Mask := 0;
-  if Color then Mask := Mask or Ord(GL_COLOR_BUFFER_BIT);
-  if Depth then Mask := Mask or Ord(GL_DEPTH_BUFFER_BIT);
+  if ClearColor then Mask := Mask or Ord(GL_COLOR_BUFFER_BIT);
+  if ClearDepth then Mask := Mask or Ord(GL_DEPTH_BUFFER_BIT);
   gl.Clear(TGLConst(Mask));
+end;
+
+procedure TRender.Color(R: Byte; G: Byte; B: Byte; A: Byte);
+begin
+  gl.Color4ub(R, G, B, A);
 end;
 
 procedure TRender.Set2D(Width, Height: LongInt);
@@ -1895,6 +2303,7 @@ begin
   gl.MatrixMode(GL_PROJECTION);
   gl.LoadIdentity;
   gl.Ortho(0, Width, 0, Height, -1, 1);
+//  gl.Ortho(0, Width, Height, 0, -1, 1);
   gl.MatrixMode(GL_MODELVIEW);
   gl.LoadIdentity;
 end;
@@ -1913,6 +2322,14 @@ begin
   gl.LoadIdentity;
 end;
 
+procedure TRender.VOffset(const v1, v2, v3, v4: TVec2f);
+begin
+  FVOffset[0] := v1;
+  FVOffset[1] := v2;
+  FVOffset[2] := v3;
+  FVOffset[3] := v4;
+end;
+
 procedure TRender.Quad(x, y, w, h, s, t, sw, th: Single);
 var
   v : array [0..3] of TVec4f;
@@ -1921,6 +2338,17 @@ begin
   v[1] := Math.Vec4f(x + w, y, s + sw, v[0].w);
   v[2] := Math.Vec4f(v[1].x, y + h, v[1].z, t);
   v[3] := Math.Vec4f(x, v[2].y, s, t);
+{
+  v[0] := Math.Vec4f(x, y, s, t);
+  v[1] := Math.Vec4f(x + w, y, s + sw, v[0].w);
+  v[2] := Math.Vec4f(v[1].x, y + h, v[1].z, t + th);
+  v[3] := Math.Vec4f(x, v[2].y, s, v[2].w);
+}
+  TVec2f(Pointer(@v[0])^) := TVec2f(Pointer(@v[0])^) + FVOffset[0];
+  TVec2f(Pointer(@v[1])^) := TVec2f(Pointer(@v[1])^) + FVOffset[1];
+  TVec2f(Pointer(@v[2])^) := TVec2f(Pointer(@v[2])^) + FVOffset[2];
+  TVec2f(Pointer(@v[3])^) := TVec2f(Pointer(@v[3])^) + FVOffset[3];
+
   gl.Beginp(GL_QUADS);
     gl.TexCoord2fv(@v[0].z);
     gl.Vertex2fv(@v[0].x);
@@ -2025,8 +2453,8 @@ begin
 
   with Render.ResManager.Items[ResIdx] do
   begin
-    Self.Width  := Width;
-    Self.Height := Height;
+    Self.FWidth  := Width;
+    Self.FHeight := Height;
   end;
 end;
 
@@ -2225,6 +2653,7 @@ const
     'glStencilMask',
     'glEnable',
     'glDisable',
+    'glAlphaFunc',
     'glBlendFunc',
     'glStencilFunc',
     'glDepthFunc',
@@ -2232,6 +2661,7 @@ const
     'glViewport',
     'glBegin',
     'glEnd',
+    'glColor4ub',
     'glVertex2fv',
     'glVertex3fv',
     'glTexCoord2fv',
@@ -2270,8 +2700,10 @@ begin
       if Proc^[i] = nil then
         Proc^[i] := GetProcAddress(Lib, ProcName[i]);
     {$IFDEF DEBUG}
+{
       if Proc^[i] = nil then
         Writeln('- ', ProcName[i]);
+}
     {$ENDIF}
     end;
   end;
@@ -2290,6 +2722,7 @@ begin
   chdir(Utils.ExtractFileDir(ParamStr(0)));
   Display.Init;
   Input.Init;
+  Sound.Init;
 
   PInit;
   while not Display.FQuit do
@@ -2303,6 +2736,7 @@ begin
   end;
   PFree;
 
+  Sound.Free;
   Input.Free;
   Display.Free;
 end;
