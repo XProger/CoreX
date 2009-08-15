@@ -30,6 +30,7 @@ end;
 procedure onRender;
 const
   SPEED = 64;
+  SDir : array [0..3] of Char = ('s', 'w', 'n', 'e');
 begin
   Render.Clear(True, False);
   Render.Set2D(Display.Width, Display.Height);
@@ -42,31 +43,21 @@ begin
         PlayerDir := 0;
       if Down[KK_LEFT] then
         PlayerDir := 1;
-      if Down[KK_RIGHT] then
-        PlayerDir := 2;
       if Down[KK_UP] then
+        PlayerDir := 2;
+      if Down[KK_RIGHT] then
         PlayerDir := 3;
     // Position
       case PlayerDir of
         0 : Pos.y := Pos.y - SPEED * Render.DeltaTime;
         1 : Pos.x := Pos.x - SPEED * Render.DeltaTime;
-        2 : Pos.x := Pos.x + SPEED * Render.DeltaTime;
-        3 : Pos.y := Pos.y + SPEED * Render.DeltaTime;
+        2 : Pos.y := Pos.y + SPEED * Render.DeltaTime;
+        3 : Pos.x := Pos.x + SPEED * Render.DeltaTime;
       end;
     // Animation
-      case PlayerDir of
-        0 : Play('walk_s', True);
-        1 : Play('walk_w', True);
-        2 : Play('walk_e', True);
-        3 : Play('walk_n', True);
-      end;
+      Play('walk_' + SDir[PlayerDir], True);
     end else
-      case PlayerDir of
-        0 : Play('idle_s', True);
-        1 : Play('idle_w', True);
-        2 : Play('idle_e', True);
-        3 : Play('idle_n', True);
-      end;
+      Play('idle_' + SDir[PlayerDir], True);
     Draw;
   end;
 end;

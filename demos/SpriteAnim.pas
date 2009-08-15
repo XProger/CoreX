@@ -24,7 +24,7 @@ begin
   Hero.Pos := Math.Vec2f(400, 300);
 // Explosion sprite
   Explosion.Load('media/explosion.spr');
-  Shot := Sound.Load('media/explosion.wav');
+  Shot.Load('media/explosion.wav');
 end;
 
 procedure onFree;

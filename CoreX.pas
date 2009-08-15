@@ -61,20 +61,10 @@ type
 {$REGION 'Utils'}
   TCharSet = set of AnsiChar;
 
-  TUtils = object
-    function IntToStr(Value: LongInt): string;
-    function StrToInt(const Str: string; Def: LongInt = 0): LongInt;
-    function FloatToStr(Value: Single; Digits: LongInt = 6): string;
-    function StrToFloat(const Str: string; Def: Single = 0): Single;
-    function BoolToStr(Value: Boolean): string;
-    function StrToBool(const Str: string; Def: Boolean = False): Boolean;
-    function LowerCase(const Str: string): string;
-    function Trim(const Str: string): string;
-    function DeleteChars(const Str: string; Chars: TCharSet): string;
-    function ExtractFileDir(const Path: string): string;
-  end;
+  PDataArray = ^TDataArray;
+  TDataArray = array [0..1] of SmallInt;
 
-  TResType = (rtTexture);
+  TResType = (rtTexture, rtSound);
 
   TResData = record
     Ref  : LongInt;
@@ -85,6 +75,10 @@ type
         Width  : LongInt;
         Height : LongInt;
       );
+      rtSound : (
+        Length : LongInt;
+        Data   : PDataArray;
+      );
   end;
 
   TResManager = object
@@ -93,6 +87,45 @@ type
     procedure Init;
     function Add(const Name: string; out Idx: LongInt): Boolean;
     function Delete(Idx: LongInt): Boolean;
+  end;
+
+  TUtils = object
+  private
+    ResManager : TResManager;
+    procedure Init;
+    procedure Free;
+  public
+    function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
+    function Conv(const Str: string; Def: Single = 0): Single; overload;
+    function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
+    function Conv(Value: LongInt): string; overload;
+    function Conv(Value: Single; Digits: LongInt = 6): string; overload;
+    function Conv(Value: Boolean): string; overload;
+    function LowerCase(const Str: string): string;
+    function Trim(const Str: string): string;
+    function DeleteChars(const Str: string; Chars: TCharSet): string;
+    function ExtractFileDir(const Path: string): string;
+  end;
+
+  TStream = object
+  private
+    SType  : (stFile, stMemory);
+    FValid : Boolean;
+    FSize  : LongInt;
+    FPos   : LongInt;
+    F      : File;
+    Mem    : Pointer;
+    procedure SetPos(Value: LongInt);
+  public
+    procedure Init(Memory: Pointer; MemSize: LongInt); overload;
+    procedure Init(const FileName: string; RW: Boolean = False); overload;
+    procedure Free;
+    procedure CopyFrom(const Stream: TStream);
+    function Read(out Buf; BufSize: LongInt): LongInt;
+    function Write(const Buf; BufSize: LongInt): LongInt;
+    property Valid: Boolean read FValid;
+    property Size: LongInt read FSize;
+    property Pos: LongInt read FPos write SetPos;
   end;
 
   TConfigFile = object
@@ -107,14 +140,14 @@ type
   public
     procedure Load(const FileName: string);
     procedure Save(const FileName: string);
-    procedure WriteStr(const Category, Name, Value: string);
-    procedure WriteInt(const Category, Name: string; Value: LongInt);
-    procedure WriteFloat(const Category, Name: string; Value: Single);
-    procedure WriteBool(const Category, Name: string; Value: Boolean);
-    function ReadStr(const Category, Name: string; const Default: string = ''): string;
-    function ReadInt(const Category, Name: string; Default: LongInt = 0): LongInt;
-    function ReadFloat(const Category, Name: string; Default: Single = 0): Single;
-    function ReadBool(const Category, Name: string; Default: Boolean = False): Boolean;
+    procedure Write(const Category, Name, Value: string); overload;
+    procedure Write(const Category, Name: string; Value: LongInt); overload;
+    procedure Write(const Category, Name: string; Value: Single); overload;
+    procedure Write(const Category, Name: string; Value: Boolean); overload;
+    function Read(const Category, Name: string; const Default: string = ''): string; overload;
+    function Read(const Category, Name: string; Default: LongInt = 0): LongInt; overload;
+    function Read(const Category, Name: string; Default: Single = 0): Single; overload;
+    function Read(const Category, Name: string; Default: Boolean = False): Boolean; overload;
     function CategoryName(Idx: LongInt): string;
   end;
 {$ENDREGION}
@@ -227,35 +260,20 @@ type
 
 // Sound -----------------------------------------------------------------------
 {$REGION 'Sound'}
-type
-  PDataArray = ^TDataArray;
-  TDataArray = array [0..1] of SmallInt;
-
   TBufferData = record
     L, R : SmallInt;
   end;
   PBufferArray = ^TBufferArray;
   TBufferArray = array [0..1] of TBufferData;
 
-  PSample  = ^TSample;
-  PDevice  = ^TDevice;
-  PSound   = ^TSound;
-
-  PSampleRes = ^TSampleRes;
-  TSampleRes = record
-    Sound  : PSound;
-    Ref    : LongInt;
-    Name   : string;
-    Length : LongInt;
-    Data   : PDataArray;
-  end;
-
+  PSample = ^TSample;
   TSample = object
   private
-    Res     : PSampleRes;
+    ResIdx  : LongInt;
     FVolume : LongInt;
     procedure SetVolume(Value: LongInt);
   public
+    function Load(const FileName: string): TSample;
     procedure Free;
     procedure Play(Loop: Boolean = False);
     property Volume: LongInt read FVolume write SetVolume;
@@ -266,17 +284,14 @@ type
     Offset  : LongInt;
     Loop    : Boolean;
     Playing : Boolean;
-    Length  : LongInt;
-    Data    : PDataArray;
   end;
 
   TDevice = object
   private
     FActive : Boolean;
-    FSound  : PSound;
     WaveOut : LongInt;
     Data    : Pointer;
-    procedure Init(Sound: PSound);
+    procedure Init;
     procedure Free;
   public
     property Active: Boolean read FActive;
@@ -285,17 +300,14 @@ type
   TSound = object
   private
     Device    : TDevice;
-    SampleRes : array of PSampleRes;
     Channel   : array [0..63] of TChannel;
     ChCount   : LongInt;
     procedure Init;
     procedure Free;
     procedure Render(Data: PBufferArray);
-    procedure FreeRes(Res: PSampleRes);
     procedure FreeChannel(Index: LongInt);
     function AddChannel(const Ch: TChannel): Boolean;
   public
-    function Load(const FileName: string): TSample;
   end;
 {$ENDREGION}
 
@@ -307,7 +319,6 @@ type
   private
     FDeltaTime : Single;
     OldTime    : LongInt;
-    ResManager : TResManager;
     FVOffset   : array [0..3] of TVec2f;
     procedure Init;
     procedure Free;
@@ -334,7 +345,7 @@ type
 {$REGION 'Texture'}
   TTexture = object
   private
-    ResIdx : LongInt;
+    ResIdx  : LongInt;
     FWidth  : LongInt;
     FHeight : LongInt;
   public
@@ -1025,32 +1036,17 @@ end;
 
 // Utils =======================================================================
 {$REGION 'TUtils'}
-function TUtils.IntToStr(Value: LongInt): string;
-var
-  Res : string[32];
+procedure TUtils.Init;
 begin
-  Str(Value, Res);
-  Result := string(Res);
+  ResManager.Init;
 end;
 
-function TUtils.StrToInt(const Str: string; Def: LongInt): LongInt;
-var
-  Code : LongInt;
+procedure TUtils.Free;
 begin
-  Val(Str, Result, Code);
-  if Code <> 0 then
-    Result := Def;
+//  ResManager.Free;
 end;
 
-function TUtils.FloatToStr(Value: Single; Digits: LongInt = 6): string;
-var
-  Res : string[32];
-begin
-  Str(Value:0:Digits, Res);
-  Result := string(Res);
-end;
-
-function TUtils.StrToFloat(const Str: string; Def: Single): Single;
+function TUtils.Conv(const Str: string; Def: LongInt): LongInt;
 var
   Code : LongInt;
 begin
@@ -1059,15 +1055,16 @@ begin
     Result := Def;
 end;
 
-function TUtils.BoolToStr(Value: Boolean): string;
+function TUtils.Conv(const Str: string; Def: Single): Single;
+var
+  Code : LongInt;
 begin
-  if Value then
-    Result := 'true'
-  else
-    Result := 'false';
+  Val(Str, Result, Code);
+  if Code <> 0 then
+    Result := Def;
 end;
 
-function TUtils.StrToBool(const Str: string; Def: Boolean = False): Boolean;
+function TUtils.Conv(const Str: string; Def: Boolean = False): Boolean;
 var
   LStr : string;
 begin
@@ -1079,6 +1076,30 @@ begin
       Result := False
     else
       Result := Def;
+end;
+
+function TUtils.Conv(Value: LongInt): string;
+var
+  Res : string[32];
+begin
+  Str(Value, Res);
+  Result := string(Res);
+end;
+
+function TUtils.Conv(Value: Single; Digits: LongInt = 6): string;
+var
+  Res : string[32];
+begin
+  Str(Value:0:Digits, Res);
+  Result := string(Res);
+end;
+
+function TUtils.Conv(Value: Boolean): string;
+begin
+  if Value then
+    Result := 'true'
+  else
+    Result := 'false';
 end;
 
 function TUtils.LowerCase(const Str: string): string;
@@ -1181,6 +1202,94 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TStream'}
+procedure TStream.SetPos(Value: LongInt);
+begin
+  FPos := Value;
+  if SType = stFile then
+    Seek(F, FPos);
+end;
+
+procedure TStream.Init(Memory: Pointer; MemSize: LongInt);
+begin
+  SType := stMemory;
+  Mem   := Memory;
+  FSize := MemSize;
+  FPos  := 0;
+end;
+
+procedure TStream.Init(const FileName: string; RW: Boolean);
+begin
+  SType := stFile;
+  FileMode := 2;
+  AssignFile(F, FileName);
+{$I-}
+  if RW then
+  begin
+    FileMode := 1;
+    Rewrite(F, 1)
+  end else
+  begin
+    FileMode := 0;
+    Reset(F, 1);
+  end;
+{$I+}
+  if IOResult = 0 then
+  begin
+    FSize  := FileSize(F);
+    FPos   := 0;
+    FValid := True;
+  end else
+    FValid := False;
+end;
+
+procedure TStream.Free;
+begin
+  if FValid then
+  begin
+    if SType = stFile then
+      CloseFile(F);
+  end;
+end;
+
+procedure TStream.CopyFrom(const Stream: TStream);
+var
+  p : Pointer;
+  CPos : LongInt;
+begin
+  p := GetMemory(Stream.Size);
+  CPos := Stream.Pos;
+  Stream.Pos := 0;
+  Stream.Read(p^, Stream.Size);
+  Stream.Pos := CPos;
+  Write(p^, Stream.Size);
+  FreeMemory(p);
+end;
+
+function TStream.Read(out Buf; BufSize: LongInt): LongInt;
+begin
+  if SType = stMemory then
+  begin
+    Result := Math.Min(FPos + BufSize, FSize) - FPos;
+    Move(Mem^, Buf, Result);
+  end else
+    BlockRead(F, Buf, BufSize, Result);
+  Inc(FPos, Result);
+end;
+
+function TStream.Write(const Buf; BufSize: LongInt): LongInt;
+begin
+  if SType = stMemory then
+  begin
+    Result := Math.Min(FPos + BufSize, FSize) - FPos;
+    Move(Buf, Mem^, Result);
+  end else
+    BlockWrite(F, Buf, BufSize, Result);
+  Inc(FPos, Result);
+  Inc(FSize, Math.Max(0, FPos - FSize));
+end;
+{$ENDREGION}
+
 {$REGION 'TConfigFile'}
 procedure TConfigFile.Load(const FileName: string);
 var
@@ -1235,7 +1344,7 @@ begin
   CloseFile(F);
 end;
 
-procedure TConfigFile.WriteStr(const Category, Name, Value: string);
+procedure TConfigFile.Write(const Category, Name, Value: string);
 var
   i, j : LongInt;
 begin
@@ -1265,22 +1374,22 @@ begin
   end;
 end;
 
-procedure TConfigFile.WriteInt(const Category, Name: string; Value: LongInt);
+procedure TConfigFile.Write(const Category, Name: string; Value: LongInt);
 begin
-  WriteStr(Category, Name, Utils.IntToStr(Value));
+  Write(Category, Name, Utils.Conv(Value));
 end;
 
-procedure TConfigFile.WriteFloat(const Category, Name: string; Value: Single);
+procedure TConfigFile.Write(const Category, Name: string; Value: Single);
 begin
-  WriteStr(Category, Name, Utils.FloatToStr(Value, 4));
+  Write(Category, Name, Utils.Conv(Value, 4));
 end;
 
-procedure TConfigFile.WriteBool(const Category, Name: string; Value: Boolean);
+procedure TConfigFile.Write(const Category, Name: string; Value: Boolean);
 begin
-  WriteStr(Category, Name, Utils.BoolToStr(Value));
+  Write(Category, Name, Utils.Conv(Value));
 end;
 
-function TConfigFile.ReadStr(const Category, Name: string; const Default: string = ''): string;
+function TConfigFile.Read(const Category, Name: string; const Default: string = ''): string;
 var
   i, j : LongInt;
 begin
@@ -1295,19 +1404,19 @@ begin
         end;
 end;
 
-function TConfigFile.ReadInt(const Category, Name: string; Default: LongInt): LongInt;
+function TConfigFile.Read(const Category, Name: string; Default: LongInt): LongInt;
 begin
-  Result := Utils.StrToInt(ReadStr(Category, Name, ''), Default);
+  Result := Utils.Conv(Read(Category, Name, ''), Default);
 end;
 
-function TConfigFile.ReadFloat(const Category, Name: string; Default: Single): Single;
+function TConfigFile.Read(const Category, Name: string; Default: Single): Single;
 begin
-  Result := Utils.StrToFloat(ReadStr(Category, Name, ''), Default);
+  Result := Utils.Conv(Read(Category, Name, ''), Default);
 end;
 
-function TConfigFile.ReadBool(const Category, Name: string; Default: Boolean): Boolean;
+function TConfigFile.Read(const Category, Name: string; Default: Boolean): Boolean;
 begin
-  Result := Utils.StrToBool(ReadStr(Category, Name, ''), Default);
+  Result := Utils.Conv(Read(Category, Name, ''), Default);
 end;
 
 function TConfigFile.CategoryName(Idx: LongInt): string;
@@ -1746,7 +1855,7 @@ begin
     FFPS     := FFPSIdx;
     FFPSIdx  := 0;
     FFPSTime := Render.Time;
-    Caption := 'CoreX [FPS: ' + Utils.IntToStr(FPS) + ']';
+    Caption := 'CoreX [FPS: ' + Utils.Conv(FPS) + ']';
   end;
 end;
 {$ENDREGION}
@@ -1944,30 +2053,65 @@ end;
 // Sound =======================================================================
 {$REGION 'TSample'}
 { TSample }
-procedure TSample.Free;
-begin
-  if Res <> nil then
-  begin
-    Dec(Res^.Ref);
-    if Res^.Ref <= 0 then
-      Res^.Sound^.FreeRes(Res);
-    Res := nil;
+function TSample.Load(const FileName: string): TSample;
+var
+  Stream : TStream;
+  Header : record
+    Some1 : array [0..4] of LongWord;
+    Fmt   : TWaveFormatEx;
+    Some2 : Word;
+    DLen  : LongWord;
   end;
+begin
+  if Utils.ResManager.Add(FileName, ResIdx) then
+  begin
+    Stream.Init(FileName);
+    if Stream.Valid then
+    begin
+      Stream.Read(Header, SizeOf(Header));
+      with Header, Fmt do
+        if (wBitsPerSample = 16) or (nChannels = 1) or (nSamplesPerSec = 22050) then
+          with Utils.ResManager.Items[ResIdx] do
+          begin
+            Length := Header.DLen div nBlockAlign;
+            Data   := GetMemory(DLen);
+            Stream.Read(Data^, DLen);
+          end;
+      Stream.Free;
+      Volume := 100;
+    end;
+  end;
+end;
+
+procedure TSample.Free;
+var
+  i : LongInt;
+begin
+  if ResIdx > -1 then
+    if Utils.ResManager.Delete(ResIdx) then
+    begin
+      i := 0;
+      while i < Sound.ChCount do
+        if Sound.Channel[i].Sample^.ResIdx = ResIdx then
+          Sound.FreeChannel(i)
+        else
+          Inc(i);
+      FreeMemory(Utils.ResManager.Items[ResIdx].Data);
+      ResIdx := -1;
+    end;
 end;
 
 procedure TSample.Play(Loop: Boolean);
 var
   Channel : TChannel;
 begin
-  if Res <> nil then
+  if ResIdx > -1 then
   begin
     Channel.Sample  := @Self;
     Channel.Offset  := 0;
     Channel.Loop    := Loop;
     Channel.Playing := True;
-    Channel.Length  := Res^.Length;
-    Channel.Data    := Res^.Data;
-    Res^.Sound^.AddChannel(Channel);
+    Sound.AddChannel(Channel);
   end;
 end;
 
@@ -1979,21 +2123,20 @@ end;
 
 {$REGION 'TDevice'}
 { TDevice }
-procedure FillProc(WaveOut, Msg: LongWord; Device: PDevice; WaveHdr: PWaveHdr; Param2: LongWord); stdcall;
+procedure FillProc(WaveOut, Msg, Inst: LongWord; WaveHdr: PWaveHdr; Param2: LongWord); stdcall;
 begin
-  if Device^.FActive then
+  if Sound.Device.Active then
     if Msg = WOM_DONE then
     begin
       waveOutUnPrepareHeader(WaveOut, WaveHdr, SizeOf(TWaveHdr));
-      Device^.FSound^.Render(WaveHdr^.lpData);
+      Sound.Render(WaveHdr^.lpData);
       waveOutPrepareHeader(WaveOut, WaveHdr, SizeOf(TWaveHdr));
       waveOutWrite(WaveOut, WaveHdr, SizeOf(TWaveHdr));
     end;
 end;
 
-procedure TDevice.Init(Sound: PSound);
+procedure TDevice.Init;
 begin
-  FSound := Sound;
   with SoundDF do
   begin
     wFormatTag      := 1;
@@ -2013,11 +2156,11 @@ begin
   // Buffer 0
     SoundDB[0].dwBufferLength := SND_BUF_SIZE;
     SoundDB[0].lpData         := Data;
-    FillProc(WaveOut, WOM_DONE, @Self, @SoundDB[0], 0);
+    FillProc(WaveOut, WOM_DONE, 0, @SoundDB[0], 0);
   // Buffer 1
     SoundDB[1].dwBufferLength := SND_BUF_SIZE;
     SoundDB[1].lpData         := Pointer(LongWord(Data) + SND_BUF_SIZE);
-    FillProc(WaveOut, WOM_DONE, @Self, @SoundDB[1], 0);
+    FillProc(WaveOut, WOM_DONE, 0, @SoundDB[1], 0);
   end else
     FActive := False;
 end;
@@ -2041,13 +2184,11 @@ end;
 procedure TSound.Init;
 begin
   InitializeCriticalSection(SoundCS);
-  Device.Init(@Self);
+  Device.Init;
 end;
 
 procedure TSound.Free;
 begin
-  while Length(SampleRes) > 0 do
-    FreeRes(SampleRes[0]);
   Device.Free;
   DeleteCriticalSection(SoundCS);
   inherited;
@@ -2069,7 +2210,7 @@ begin
     FillChar(AmpData, SizeOf(AmpData), 0);
   // Mix channels sample
     for j := 0 to ChCount - 1 do
-      with Channel[j] do
+      with Channel[j], Utils.ResManager.Items[Sample^.ResIdx] do
       begin
         for i := 0 to SAMPLE_COUNT - 1 do
         begin
@@ -2118,31 +2259,6 @@ begin
       Inc(i);
 end;
 
-procedure TSound.FreeRes(Res: PSampleRes);
-var
-  i, len : Integer;
-begin
-// Free sample channels
-  i := 0;
-  while i < ChCount do
-    if Channel[i].Sample^.Res = Res then
-      FreeChannel(i)
-    else
-      Inc(i);
-// Free sample
-  len := Length(SampleRes) - 1;
-  for i := 0 to len do
-    if SampleRes[i] = Res then
-    begin
-      if Res^.Data <> nil then
-        FreeMemory(Res^.Data);
-      Dispose(Res);
-      SampleRes[i] := SampleRes[len];
-      SetLength(SampleRes, len);
-      break;
-    end;
-end;
-
 procedure TSound.FreeChannel(Index: LongInt);
 begin
   EnterCriticalSection(SoundCS);
@@ -2163,49 +2279,7 @@ begin
   end;
 end;
 
-function TSound.Load(const FileName: string): TSample;
-var
-  i : LongInt;
-  F : File;
-  Header : record
-    Some1 : array [0..4] of LongWord;
-    Fmt   : TWaveFormatEx;
-    Some2 : Word;
-    DLen  : LongWord;
-  end;
-begin
-  Result.Res    := nil;
-  Result.Volume := 100;
-// Get loaded sample
-  for i := 0 to Length(SampleRes) - 1 do
-    if SampleRes[i]^.Name = FileName then
-    begin
-      Inc(SampleRes[i]^.Ref);
-      Result.Res := SampleRes[i];
-      Exit;
-    end;
-// or load new
-  AssignFile(F, FileName);
-  Reset(F, 1);
-  BlockRead(F, Header, SizeOf(Header));
-  with Header, Fmt do
-    if (wBitsPerSample = 16) or (nChannels = 1) or (nSamplesPerSec = 22050) then
-    begin
-      New(Result.Res);
-      with Result.Res^ do
-      begin
-        Sound  := @Self;
-        Ref    := 1;
-        Name   := FileName;
-        Length := Header.DLen div nBlockAlign;
-        Data   := GetMemory(DLen);
-        BlockRead(F, Data^, DLen);
-      end;
-      SetLength(SampleRes, Length(SampleRes) + 1);
-      SampleRes[Length(SampleRes) - 1] := Result.Res;
-    end;
-  CloseFile(F);
-end;
+
 {$ENDREGION}
 
 // Render ======================================================================
@@ -2220,7 +2294,7 @@ begin
 {$ENDIF}
   Display.Restore;
   Blend := btNormal;
-  ResManager.Init;
+
   gl.Enable(GL_TEXTURE_2D);
   gl.Enable(GL_ALPHA_TEST);
   gl.AlphaFunc(GL_GREATER, 0.0);
@@ -2369,7 +2443,7 @@ const
   DDPF_ALPHAPIXELS = $01;
   DDPF_FOURCC      = $04;
 var
-  Stream  : File;
+  Stream  : TStream;
   i, w, h : LongInt;
   Size : LongInt;
   Data : Pointer;
@@ -2390,68 +2464,69 @@ var
     SomeData2   : array [0..8] of LongWord;
   end;
 begin
-  if Render.ResManager.Add(FileName, ResIdx) then
+  if Utils.ResManager.Add(FileName, ResIdx) then
   begin
-    AssignFile(Stream, FileName);
-    Reset(Stream, 1);
-    BlockRead(Stream, DDS, SizeOf(DDS));
-    Data := GetMemory(DDS.POLSize);
-
-    with Render.ResManager.Items[ResIdx] do
+    Stream.Init(FileName);
+    if Stream.Valid then
     begin
-      Width  := DDS.Width;
-      Height := DDS.Height;
-      gl.GenTextures(1, @ID);
-      gl.BindTexture(GL_TEXTURE_2D, ID);
-    end;
-    gl.TexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
-  // Select OpenGL texture format
-    DDS.pfRGBbpp := DDS.POLSize * 8 div (DDS.Width * DDS.Height);
-    f := GL_RGB8;
-    c := GL_BGR;
-    if DDS.pfFlags and DDPF_FOURCC > 0 then
-      case DDS.pfFourCC[3] of
-        '1' : f := GL_COMPRESSED_RGBA_S3TC_DXT1;
-        '3' : f := GL_COMPRESSED_RGBA_S3TC_DXT3;
-        '5' : f := GL_COMPRESSED_RGBA_S3TC_DXT5;
-      end
-    else
-      if DDS.pfFlags and DDPF_ALPHAPIXELS > 0 then
+      Stream.Read(DDS, SizeOf(DDS));
+      Data := GetMemory(DDS.POLSize);
+      with Utils.ResManager.Items[ResIdx] do
       begin
-        f := GL_RGBA8;
-        c := GL_BGRA;
+        Width  := DDS.Width;
+        Height := DDS.Height;
+        gl.GenTextures(1, @ID);
+        gl.BindTexture(GL_TEXTURE_2D, ID);
       end;
-
-    for i := 0 to Math.Max(DDS.MipMapCount, 1) - 1 do
-    begin
-      w := Math.Max(DDS.Width shr i, 1);
-      h := Math.Max(DDS.Height shr i, 1);
-      Size := (w * h * DDS.pfRGBbpp) div 8;
-      BlockRead(Stream, Data^, Size);
-      if (DDS.pfFlags and DDPF_FOURCC) > 0 then
-      begin
-        if (w < 4) or (h < 4) then
+      gl.TexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
+    // Select OpenGL texture format
+      DDS.pfRGBbpp := DDS.POLSize * 8 div (DDS.Width * DDS.Height);
+      f := GL_RGB8;
+      c := GL_BGR;
+      if DDS.pfFlags and DDPF_FOURCC > 0 then
+        case DDS.pfFourCC[3] of
+          '1' : f := GL_COMPRESSED_RGBA_S3TC_DXT1;
+          '3' : f := GL_COMPRESSED_RGBA_S3TC_DXT3;
+          '5' : f := GL_COMPRESSED_RGBA_S3TC_DXT5;
+        end
+      else
+        if DDS.pfFlags and DDPF_ALPHAPIXELS > 0 then
         begin
-          DDS.MipMapCount := i;
-          Break;
+          f := GL_RGBA8;
+          c := GL_BGRA;
         end;
-        gl.CompressedTexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, Size, Data)
+
+      for i := 0 to Math.Max(DDS.MipMapCount, 1) - 1 do
+      begin
+        w := Math.Max(DDS.Width shr i, 1);
+        h := Math.Max(DDS.Height shr i, 1);
+        Size := (w * h * DDS.pfRGBbpp) div 8;
+        Stream.Read(Data^, Size);
+        if (DDS.pfFlags and DDPF_FOURCC) > 0 then
+        begin
+          if (w < 4) or (h < 4) then
+          begin
+            DDS.MipMapCount := i;
+            Break;
+          end;
+          gl.CompressedTexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, Size, Data)
+        end else
+          gl.TexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, c, GL_UNSIGNED_BYTE, Data);
+      end;
+      FreeMemory(Data);
+    // Filter
+      gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      if DDS.MipMapCount > 0 then
+      begin
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, TGLConst(DDS.MipMapCount - 1));
       end else
-        gl.TexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, c, GL_UNSIGNED_BYTE, Data);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     end;
-    FreeMemory(Data);
-    CloseFile(Stream);
-  // Filter
-    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    if DDS.MipMapCount > 0 then
-    begin
-      gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-      gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, TGLConst(DDS.MipMapCount - 1));
-    end else
-      gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    Stream.Free;
   end;
 
-  with Render.ResManager.Items[ResIdx] do
+  with Utils.ResManager.Items[ResIdx] do
   begin
     Self.FWidth  := Width;
     Self.FHeight := Height;
@@ -2460,15 +2535,15 @@ end;
 
 procedure TTexture.Free;
 begin
-  if Render.ResManager.Delete(ResIdx) then
-    gl.DeleteTextures(1, @Render.ResManager.Items[ResIdx].ID);
+  if Utils.ResManager.Delete(ResIdx) then
+    gl.DeleteTextures(1, @Utils.ResManager.Items[ResIdx].ID);
 end;
 
 procedure TTexture.Enable(Channel: LongInt);
 begin
   if @gl.ActiveTexture <> nil then
     gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + Channel));
-  gl.BindTexture(GL_TEXTURE_2D, Render.ResManager.Items[ResIdx].ID);
+  gl.BindTexture(GL_TEXTURE_2D, Utils.ResManager.Items[ResIdx].ID);
 end;
 {$ENDREGION}
 
@@ -2537,7 +2612,7 @@ var
 
   function Param(const Name: string; Def: Integer): Integer;
   begin
-    Result := Cfg.ReadInt(Cat, Name, Def);
+    Result := Cfg.Read(Cat, Name, Def);
   end;
 
 begin
@@ -2558,9 +2633,9 @@ begin
                Param('CenterX', 0), Param('CenterY', 0), Param('FPS', 1));
     Inc(i);
   end;
-  Texture.Load(Cfg.ReadStr('sprite', 'Texture', ''));
+  Texture.Load(Cfg.Read('sprite', 'Texture', ''));
   Blend := btNormal;
-  Cat := Cfg.ReadStr('sprite', 'Blend', 'normal');
+  Cat := Cfg.Read('sprite', 'Blend', 'normal');
   for b := Low(b) to High(b) do
     if BlendStr[b] = Cat then
     begin
@@ -2719,6 +2794,7 @@ end;
 {$REGION 'CoreX'}
 procedure Start(PInit, PFree, PRender: TCoreProc);
 begin
+  Utils.Init;
   chdir(Utils.ExtractFileDir(ParamStr(0)));
   Display.Init;
   Input.Init;
@@ -2739,6 +2815,7 @@ begin
   Sound.Free;
   Input.Free;
   Display.Free;
+  Utils.Free;
 end;
 
 procedure Quit;
