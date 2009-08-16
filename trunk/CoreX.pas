@@ -138,6 +138,7 @@ type
         end;
       end;
   public
+    procedure Clear;
     procedure Load(const FileName: string);
     procedure Save(const FileName: string);
     procedure Write(const Category, Name, Value: string); overload;
@@ -509,8 +510,8 @@ type
     Beginp         : procedure (mode: TGLConst); stdcall;
     Endp           : procedure;
     Color4ub       : procedure (r, g, b, a: Byte); stdcall;
-    Vertex2fv      : procedure (xyz: Pointer); stdcall;
-    Vertex3fv      : procedure (xy: Pointer); stdcall;
+    Vertex2fv      : procedure (xy: Pointer); stdcall;
+    Vertex3fv      : procedure (xyz: Pointer); stdcall;
     TexCoord2fv    : procedure (st: Pointer); stdcall;
     EnableClientState  : procedure (_array: TGLConst); stdcall;
     DisableClientState : procedure (_array: TGLConst); stdcall;
@@ -749,7 +750,9 @@ const
       $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A, $7B,
       $1B, $03, $08, $09, $10, $11, $12, $20, $21, $22, $23, $24, $25, $26, $27, $28, $2D, $2E);
 
-  SND_BUF_SIZE = 40 * 22050 * 4 div 1000; // 40 ms latency
+  SND_FREQ     = 44100;
+  SND_BPP      = 16;
+  SND_BUF_SIZE = 40 * SND_FREQ * (SND_BPP div 8) * 2 div 1000; // 40 ms latency
   SND_CHANNELS = 64;
 
 var
@@ -1291,6 +1294,11 @@ end;
 {$ENDREGION}
 
 {$REGION 'TConfigFile'}
+procedure TConfigFile.Clear;
+begin
+  Data := nil;
+end;
+
 procedure TConfigFile.Load(const FileName: string);
 var
   F : TextFile;
@@ -2070,7 +2078,7 @@ begin
     begin
       Stream.Read(Header, SizeOf(Header));
       with Header, Fmt do
-        if (wBitsPerSample = 16) or (nChannels = 1) or (nSamplesPerSec = 22050) then
+        if (wBitsPerSample = 16) and (nChannels = 1) and (nSamplesPerSec = 44100) then
           with Utils.ResManager.Items[ResIdx] do
           begin
             Length := Header.DLen div nBlockAlign;
@@ -2141,8 +2149,8 @@ begin
   begin
     wFormatTag      := 1;
     nChannels       := 2;
-    nSamplesPerSec  := 22050;
-    wBitsPerSample  := 16;
+    nSamplesPerSec  := SND_FREQ;
+    wBitsPerSample  := SND_BPP;
     cbSize          := SizeOf(SoundDF);
     nBlockAlign     := wBitsPerSample div 8 * nChannels;
     nAvgBytesPerSec := nSamplesPerSec * nBlockAlign * nChannels;
