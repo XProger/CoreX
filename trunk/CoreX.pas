@@ -24,7 +24,7 @@ interface
   {$MACRO ON}
   {$DEFINE stdcall := cdecl} // For TGL
 {$ENDIF}
-
+            uses OpenGL;
 type
   TCoreProc = procedure;
 
@@ -385,7 +385,6 @@ type
   private
     FDeltaTime : Single;
     OldTime    : LongInt;
-    FVOffset   : array [0..3] of TVec2f;
     procedure Init;
     procedure Free;
     function GetTime: LongInt;
@@ -397,7 +396,6 @@ type
     procedure Color(R, G, B, A: Byte);
     procedure Set2D(Width, Height: LongInt);
     procedure Set3D(FOV: Single; zNear: Single = 0.1; zFar: Single = 1000);
-    procedure VOffset(const v1, v2, v3, v4: TVec2f);
     procedure Quad(x, y, w, h, s, t, sw, th: Single); inline;
     property Time: LongInt read GetTime;
     property DeltaTime: Single read FDeltaTime;
@@ -468,19 +466,27 @@ type
     Texture   : TTexture;
     Blend     : TBlendType;
     CurIndex  : LongInt;
-    StarLongWord : LongInt;
+    StartTime : LongInt;
+    FVertex   : array of TVec2f;
+    FCols, FRows : LongInt;
     function GetPlaying: Boolean;
+    function GetVertex(x, y: LongInt): TVec2f;
+    procedure SetVertex(x, y: LongInt; const v: TVec2f);
   public
     Pos   : TVec2f;
     Scale : TVec2f;
     Angle : Single;
     procedure Load(const FileName: string);
+    procedure Grid(GCols, GRows: LongInt);
     procedure Free;
     procedure Play(const AnimName: string; Loop: Boolean);
     procedure Stop;
     procedure Draw;
     property Playing: Boolean read GetPlaying;
     property Anim: TSpriteAnimList read FAnim;
+    property Cols: LongInt read FCols;
+    property Rows: LongInt read FRows;
+    property Vertex[x, y: LongInt]: TVec2f read GetVertex write SetVertex;
   end;
 {$ENDREGION}
 
@@ -499,7 +505,7 @@ type
   // Blending Factor
     GL_ZERO = 0, GL_ONE, GL_SRC_COLOR = $0300, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_DST_COLOR = $0306, GL_ONE_MINUS_DST_COLOR, GL_SRC_ALPHA_SATURATE,
   // DrawBuffer Mode
-    GL_FRONT = $0404, GL_BACK, GL_FRONT_AND_BACK,
+    GL_FRONT = $0404, GL_BACK, GL_FRONT_AND_BACK = $0408,
   // Tests
     GL_DEPTH_TEST = $0B71, GL_STENCIL_TEST = $0B90, GL_ALPHA_TEST = $0BC0, GL_SCISSOR_TEST = $0C11,
   // GetTarget
@@ -2639,7 +2645,6 @@ begin
   Writeln('GL_RENDERER : ', gl.GetString(GL_RENDERER));
   Writeln('GL_VERSION  : ', gl.GetString(GL_VERSION));
 }
-  VOffset(v, v, v, v);
 end;
 
 procedure TRender.Free;
@@ -2729,42 +2734,24 @@ begin
   gl.LoadIdentity;
 end;
 
-procedure TRender.VOffset(const v1, v2, v3, v4: TVec2f);
-begin
-  FVOffset[0] := v1;
-  FVOffset[1] := v2;
-  FVOffset[2] := v3;
-  FVOffset[3] := v4;
-end;
-
 procedure TRender.Quad(x, y, w, h, s, t, sw, th: Single);
 var
   v : array [0..3] of TVec4f;
 begin
   v[0] := Vec4f(x, y, s, t + th);
-  v[1] := Vec4f(x + w, y, s + sw, v[0].w);
-  v[2] := Vec4f(v[1].x, y + h, v[1].z, t);
-  v[3] := Vec4f(x, v[2].y, s, t);
-{
-  v[0] := Math.Vec4f(x, y, s, t);
-  v[1] := Math.Vec4f(x + w, y, s + sw, v[0].w);
-  v[2] := Math.Vec4f(v[1].x, y + h, v[1].z, t + th);
-  v[3] := Math.Vec4f(x, v[2].y, s, v[2].w);
-}
-  TVec2f(Pointer(@v[0])^) := TVec2f(Pointer(@v[0])^) + FVOffset[0];
-  TVec2f(Pointer(@v[1])^) := TVec2f(Pointer(@v[1])^) + FVOffset[1];
-  TVec2f(Pointer(@v[2])^) := TVec2f(Pointer(@v[2])^) + FVOffset[2];
-  TVec2f(Pointer(@v[3])^) := TVec2f(Pointer(@v[3])^) + FVOffset[3];
+  v[1] := Vec4f(x + w, y, s + sw, t + th);
+  v[2] := Vec4f(x + w, y + h, s + sw, t);
+  v[3] := Vec4f(x, y + h, s, t);
 
-  gl.Beginp(GL_QUADS);
+  gl.Beginp(GL_TRIANGLE_STRIP);
     gl.TexCoord2fv(@v[0].z);
     gl.Vertex2fv(@v[0].x);
     gl.TexCoord2fv(@v[1].z);
     gl.Vertex2fv(@v[1].x);
-    gl.TexCoord2fv(@v[2].z);
-    gl.Vertex2fv(@v[2].x);
     gl.TexCoord2fv(@v[3].z);
     gl.Vertex2fv(@v[3].x);
+    gl.TexCoord2fv(@v[2].z);
+    gl.Vertex2fv(@v[2].x);
   gl.Endp;
 end;
 {$ENDREGION}
@@ -2936,8 +2923,18 @@ begin
   if (CurIndex < 0) or (not FPlaying) then
     Exit;
   with Anim.Items[CurIndex] do
-    FPlaying := FLoop or ((Render.Time - StarLongWord) div (1000 div FPS) < Frames);
+    FPlaying := FLoop or ((Render.Time - StartTime) div (1000 div FPS) < Frames);
   Result := FPlaying;
+end;
+
+function TSprite.GetVertex(x, y: LongInt): TVec2f;
+begin
+  Result := FVertex[y * FCols + x];
+end;
+
+procedure TSprite.SetVertex(x, y: LongInt; const v: TVec2f);
+begin
+  FVertex[y * FCols + x] := v;
 end;
 
 procedure TSprite.Load(const FileName: string);
@@ -2982,6 +2979,18 @@ begin
       Blend := b;
       break;
     end;
+  Grid(2, 2);
+end;
+
+procedure TSprite.Grid(GCols, GRows: LongInt);
+var
+  i : LongInt;
+begin
+  FCols := Clamp(GCols, 2, 32);
+  FRows := Clamp(GRows, 2, 32);
+  SetLength(FVertex, Cols * Rows);
+  for i := 0 to Cols * Rows - 1 do
+    FVertex[i] := Vec2f(i mod Cols / (Cols - 1), i div Cols / (Rows - 1));
 end;
 
 procedure TSprite.Free;
@@ -2997,7 +3006,7 @@ begin
   if (NewIndex <> CurIndex) or (not FPlaying) then
   begin
     FLoop := Loop;
-    StarLongWord := Render.Time;
+    StartTime := Render.Time;
     CurIndex := NewIndex;
   end;
   FPlaying := True;
@@ -3010,8 +3019,9 @@ end;
 
 procedure TSprite.Draw;
 var
-  CurFrame : LongInt;
-  fw, fh   : Single;
+  x, y, CurFrame : LongInt;
+  vs, vc, ts, tc : TVec2f;
+  v, t : array [0..31, 0..31] of TVec2f;
 begin
   if CurIndex < 0 then
     Exit;
@@ -3019,16 +3029,42 @@ begin
   with Anim.Items[CurIndex] do
   begin
     if Playing then
-      CurFrame := (Render.Time - StarLongWord) div (1000 div FPS) mod Frames
+      CurFrame := (Render.Time - StartTime) div (1000 div FPS) mod Frames
     else
       CurFrame := 0;
-    fw := Width/Texture.Width;
-    fh := Height/Texture.Height;
     Render.Blend := Blend;
-    Render.Quad(Pos.X - CenterX * Scale.x, Pos.Y - CenterY * Scale.y,
-                Width * Scale.x, Height * Scale.y,
-                X/Texture.Width + CurFrame mod Cols * fw, CurFrame div Cols * fh, fw, fh);
+
+    vs := Vec2f(Width, Height) * Scale;
+    vc := Vec2f(CenterX, CenterY) * Scale;
+    ts := Vec2f(Width / Texture.Width, Height / Texture.Height);
+    tc := Vec2f(X / Texture.Width, Y / Texture.Height) + Vec2f(CurFrame mod Cols, CurFrame div Cols) * ts;
   end;
+
+  gl.PushMatrix;
+  gl.Translatef(Pos.x, Pos.y, 0);
+  gl.Rotatef(Angle * rad2deg, 0, 0, 1);
+  gl.Translatef(-vc.x, -vc.y, 0);
+  gl.Scalef(vs.x, vs.y, 1);
+
+  for y := 0 to FRows - 1 do
+    for x := 0 to FCols - 1 do
+    begin
+      v[x, y] := Vertex[x, y];
+      t[x, y] := Vec2f(x / (FCols - 1), 1 - y / (FRows - 1)) * ts + tc;
+    end;
+
+  gl.Beginp(GL_QUADS);
+    for y := 0 to FRows - 2 do
+      for x := 0 to FCols - 2 do
+      begin
+        gl.TexCoord2fv(@t[x, y]);         gl.Vertex2fv(@v[x, y]);
+        gl.TexCoord2fv(@t[x + 1, y]);     gl.Vertex2fv(@v[x + 1, y]);
+        gl.TexCoord2fv(@t[x + 1, y + 1]); gl.Vertex2fv(@v[x + 1, y + 1]);
+        gl.TexCoord2fv(@t[x, y + 1]);     gl.Vertex2fv(@v[x, y + 1]);
+      end;
+  gl.Endp;
+
+  gl.PopMatrix;
 end;
 {$ENDREGION}
 
@@ -3139,6 +3175,7 @@ begin
   Sound.Init;
 
   PInit;
+  Render.OldTime := Render.Time;
   while not Screen.FQuit do
   begin
     Input.Update;
