@@ -24,7 +24,7 @@ interface
   {$MACRO ON}
   {$DEFINE stdcall := cdecl} // For TGL
 {$ENDIF}
-            uses OpenGL;
+
 type
   TCoreProc = procedure;
 
@@ -114,7 +114,6 @@ type
   function Ceil(const x: Extended): LongInt;
   function Floor(const x: Extended): LongInt;
   function Tan(x: Single): Single; assembler;
-  function CoTan(x: Single): Single; assembler;
   procedure SinCos(Theta: Single; out Sin, Cos: Single); assembler;
   function ArcTan2(y, x: Single): Single; assembler;
   function ArcCos(x: Single): Single; assembler;
@@ -1340,14 +1339,6 @@ asm
   fld x
   fptan
   fstp st(0)
-  fwait
-end;
-
-function CoTan(x: Single): Single;
-asm
-  fld x
-  fptan
-  fdivrp
   fwait
 end;
 
@@ -2624,8 +2615,6 @@ end;
 // Render ======================================================================
 {$REGION 'TRender'}
 procedure TRender.Init;
-const
-  v : TVec2f = (x: 0; y: 0);
 begin
   gl.Init;
 {$IFDEF WINDOWS}
