@@ -30,35 +30,100 @@ type
 
 // Math ------------------------------------------------------------------------
 {$REGION 'Math'}
-  TVec2f = record
+const
+  ONE     : Single = 1.0;
+  EPS     = 1.E-05;
+  deg2rad = pi / 180;
+  rad2deg = 180 / pi;
+
+type
+  TVec2f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y : Single;
-    class operator Add(const v1, v2: TVec2f): TVec2f;
+  {$IFNDEF FPC}
+    class operator Equal(const a, b: TVec2f): Boolean; inline;
+    class operator Add(const a, b: TVec2f): TVec2f; inline;
+    class operator Subtract(const a, b: TVec2f): TVec2f; inline;
+    class operator Multiply(const a, b: TVec2f): TVec2f; inline;
+    class operator Multiply(const v: TVec2f; x: Single): TVec2f; inline;
+  {$ENDIF}
+    function Dot(const v: TVec2f): Single;
+    function Reflect(const n: TVec2f): TVec2f;
+    function Refract(const n: TVec2f; Factor: Single): TVec2f;
+    function Length: Single;
+    function LengthQ: Single;
+    function Normal: TVec2f;
+    function Dist(const v: TVec2f): Single;
+    function Lerp(const v: TVec2f; t: Single): TVec2f;
+    function Clamp(const Min, Max: TVec2f): TVec2f;
+    function Rotate(Angle: Single): TVec2f;
+    function Angle(const v: TVec2f): Single;
   end;
 
-  TVec3f = record
+  TVec3f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y, z : Single;
+  {$IFNDEF FPC}
+    class operator Equal(const a, b: TVec3f): Boolean; inline;
+    class operator Add(const a, b: TVec3f): TVec3f; inline;
+    class operator Subtract(const a, b: TVec3f): TVec3f; inline;
+    class operator Multiply(const a, b: TVec3f): TVec3f; inline;
+    class operator Multiply(const v: TVec3f; x: Single): TVec3f; inline;
+  {$ENDIF}
+    function Dot(const v: TVec3f): Single;
+    function Cross(const v: TVec3f): TVec3f;
+    function Reflect(const n: TVec3f): TVec3f;
+    function Refract(const n: TVec3f; Factor: Single): TVec3f;
+    function Length: Single;
+    function LengthQ: Single;
+    function Normal: TVec3f;
+    function Dist(const v: TVec3f): Single;
+    function Lerp(const v: TVec3f; t: Single): TVec3f;
+    function Clamp(const Min, Max: TVec3f): TVec3f;
+    function Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
+    function Angle(const v: TVec3f): Single;
   end;
 
   TVec4f = record
     x, y, z, w : Single;
   end;
 
-  TMath = object
-    function Vec2f(x, y: Single): TVec2f; inline;
-    function Vec3f(x, y, z: Single): TVec3f; inline;
-    function Vec4f(x, y, z, w: Single): TVec4f; inline;
-    function Max(x, y: Single): Single; overload; inline;
-    function Min(x, y: Single): Single; overload; inline;
-    function Max(x, y: LongInt): LongInt; overload; inline;
-    function Min(x, y: LongInt): LongInt; overload; inline;
-    function Sign(x: Single): LongInt; inline;
-    function Ceil(const X: Extended): LongInt;
-    function Floor(const X: Extended): LongInt;
-  end;
+{$IFDEF FPC}
+// TVec2f
+  operator = (const a, b: TVec2f): Boolean; inline;
+  operator + (const a, b: TVec2f): TVec2f; inline;
+  operator - (const a, b: TVec2f): TVec2f; inline;
+  operator * (const a, b: TVec2f): TVec2f; inline;
+  operator * (const v: TVec2f; x: Single): TVec2f; inline;
+// TVec3f
+  operator = (const a, b: TVec3f): Boolean; inline;
+  operator + (const a, b: TVec3f): TVec3f; inline;
+  operator - (const a, b: TVec3f): TVec3f; inline;
+  operator * (const a, b: TVec3f): TVec3f; inline;
+  operator * (const v: TVec3f; x: Single): TVec3f; inline;
+{$ENDIF}
+
+  function Vec2f(x, y: Single): TVec2f; inline;
+  function Vec3f(x, y, z: Single): TVec3f; inline;
+  function Vec4f(x, y, z, w: Single): TVec4f; inline;
+  function Min(x, y: LongInt): LongInt; overload; inline;
+  function Min(x, y: Single): Single; overload; inline;
+  function Max(x, y: LongInt): LongInt; overload; inline;
+  function Max(x, y: Single): Single; overload; inline;
+  function Clamp(x, min, max: LongInt): LongInt; overload; inline;
+  function Clamp(x, min, max: Single): Single; overload; inline;
+  function Sign(x: Single): LongInt; inline;
+  function Ceil(const x: Extended): LongInt;
+  function Floor(const x: Extended): LongInt;
+  function Tan(x: Single): Single; assembler;
+  function CoTan(x: Single): Single; assembler;
+  procedure SinCos(Theta: Single; out Sin, Cos: Single); assembler;
+  function ArcTan2(y, x: Single): Single; assembler;
+  function ArcCos(x: Single): Single; assembler;
+  function ArcSin(x: Single): Single; assembler;
 {$ENDREGION}
 
 // Utils -----------------------------------------------------------------------
 {$REGION 'Utils'}
+type
   TCharSet = set of AnsiChar;
 
   PDataArray = ^TDataArray;
@@ -153,11 +218,11 @@ type
   end;
 {$ENDREGION}
 
-// Display ---------------------------------------------------------------------
-{$REGION 'Display'}
+// Screen ----------------------------------------------------------------------
+{$REGION 'Screen'}
   TAAType = (aa0x, aa1x, aa2x, aa4x, aa8x, aa16x);
 
-  TDisplay = object
+  TScreen = object
   private
     FQuit   : Boolean;
     Handle  : LongWord;
@@ -274,7 +339,7 @@ type
     FVolume : LongInt;
     procedure SetVolume(Value: LongInt);
   public
-    function Load(const FileName: string): TSample;
+    procedure Load(const FileName: string);
     procedure Free;
     procedure Play(Loop: Boolean = False);
     property Volume: LongInt read FVolume write SetVolume;
@@ -323,7 +388,7 @@ type
     FVOffset   : array [0..3] of TVec2f;
     procedure Init;
     procedure Free;
-    function GeLongWord: LongInt;
+    function GetTime: LongInt;
     procedure SetBlend(Value: TBlendType);
     procedure SetDepthTest(Value: Boolean);
     procedure SetDepthWrite(Value: Boolean);
@@ -334,7 +399,7 @@ type
     procedure Set3D(FOV: Single; zNear: Single = 0.1; zFar: Single = 1000);
     procedure VOffset(const v1, v2, v3, v4: TVec2f);
     procedure Quad(x, y, w, h, s, t, sw, th: Single); inline;
-    property Time: LongInt read GeLongWord;
+    property Time: LongInt read GetTime;
     property DeltaTime: Single read FDeltaTime;
     property Blend: TBlendType write SetBlend;
     property DepthTest: Boolean write SetDepthTest;
@@ -537,9 +602,8 @@ type
 
 var
   gl      : TGL;
-  Math    : TMath;
   Utils   : TUtils;
-  Display : TDisplay;
+  Screen  : TScreen;
   Input   : TInput;
   Sound   : TSound;
   Render  : TRender;
@@ -554,21 +618,6 @@ implementation
 {$IFDEF WINDOWS}
 // Windows API -----------------------------------------------------------------
 type
-  TWndClassEx = packed record
-    cbSize        : LongWord;
-    style         : LongWord;
-    lpfnWndProc   : Pointer;
-    cbClsExtra    : LongInt;
-    cbWndExtra    : LongInt;
-    hInstance     : LongWord;
-    hIcon         : LongInt;
-    hCursor       : LongWord;
-    hbrBackground : LongWord;
-    lpszMenuName  : PAnsiChar;
-    lpszClassName : PAnsiChar;
-    hIconSm       : LongWord;
-  end;
-
   TPixelFormatDescriptor = packed record
     nSize        : Word;
     nVersion     : Word;
@@ -658,7 +707,6 @@ const
   gdi32               = 'gdi32.dll';
   opengl32            = 'opengl32.dll';
   winmm               = 'winmm.dll';
-  WND_CLASS           = 'CCoreX';
   WS_VISIBLE          = $10000000;
   WM_DESTROY          = $0002;
   WM_ACTIVATEAPP      = $001C;
@@ -671,6 +719,7 @@ const
   WM_MOUSEWHEEL       = $020A;
   SW_SHOW             = 5;
   SW_MINIMIZE         = 6;
+  GWL_WNDPROC         = -4;
   GWL_STYLE           = -16;
   JOYCAPS_HASZ        = $0001;
   JOYCAPS_HASR        = $0002;
@@ -686,8 +735,6 @@ const
   function LoadLibraryA(Name: PAnsiChar): LongWord; stdcall; external kernel32;
   function FreeLibrary(LibHandle: LongWord): Boolean; stdcall; external kernel32;
   function GetProcAddress(LibHandle: LongWord; ProcName: PAnsiChar): Pointer; stdcall; external kernel32;
-  function RegisterClassExA(const WndClass: TWndClassEx): Word; stdcall; external user32;
-  function UnregisterClassA(lpClassName: PAnsiChar; hInstance: LongWord): Boolean; stdcall; external user32;
   function CreateWindowExA(dwExStyle: LongWord; lpClassName: PAnsiChar; lpWindowName: PAnsiChar; dwStyle: LongWord; X, Y, nWidth, nHeight: LongInt; hWndParent, hMenum, hInstance: LongWord; lpParam: Pointer): LongWord; stdcall; external user32;
   function DestroyWindow(hWnd: LongWord): Boolean; stdcall; external user32;
   function ShowWindow(hWnd: LongWord; nCmdShow: LongInt): Boolean; stdcall; external user32;
@@ -753,7 +800,6 @@ const
   SND_FREQ     = 44100;
   SND_BPP      = 16;
   SND_BUF_SIZE = 40 * SND_FREQ * (SND_BPP div 8) * 2 div 1000; // 40 ms latency
-  SND_CHANNELS = 64;
 
 var
   DC, RC   : LongWord;
@@ -950,28 +996,253 @@ var
 
 // Math ========================================================================
 {$REGION 'TVec2f'}
-class operator TVec2f.Add(const v1, v2: TVec2f): TVec2f;
+{$IFDEF FPC}operator = {$ELSE}class operator TVec2f.Equal{$ENDIF}
+  (const a, b: TVec2f): Boolean;
 begin
-  Result.x := v1.x + v2.x;
-  Result.y := v1.y + v2.y;
+  with b - a do
+    Result := (abs(x) <= EPS) and (abs(y) <= EPS);
+end;
+
+{$IFDEF FPC}operator + {$ELSE}class operator TVec2f.Add{$ENDIF}
+  (const a, b: TVec2f): TVec2f;
+begin
+  Result.x := a.x + b.x;
+  Result.y := a.y + b.y;
+end;
+
+{$IFDEF FPC}operator - {$ELSE}class operator TVec2f.Subtract{$ENDIF}
+  (const a, b: TVec2f): TVec2f;
+begin
+  Result.x := a.x - b.x;
+  Result.y := a.y - b.y;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TVec2f.Multiply{$ENDIF}
+  (const a, b: TVec2f): TVec2f;
+begin
+  Result.x := a.x * b.x;
+  Result.y := a.y * b.y;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TVec2f.Multiply{$ENDIF}
+  (const v: TVec2f; x: Single): TVec2f;
+begin
+  Result.x := v.x * x;
+  Result.y := v.y * x;
+end;
+
+function TVec2f.Dot(const v: TVec2f): Single;
+begin
+  Result := x * v.x + y * v.y;
+end;
+
+function TVec2f.Reflect(const n: TVec2f): TVec2f;
+begin
+  Result := Self - (n * (2 * Dot(n)));
+end;
+
+function TVec2f.Refract(const n: TVec2f; Factor: Single): TVec2f;
+var
+  d, s : Single;
+begin
+  d := Dot(n);
+  s := 1 - sqr(Factor) * (1 - sqr(d));
+  if s < EPS then
+    Result := Reflect(n)
+  else
+    Result := Self * Factor - n * (sqrt(s) + d * Factor);
+end;
+
+function TVec2f.Length: Single;
+begin
+  Result := sqrt(LengthQ);
+end;
+
+function TVec2f.LengthQ: Single;
+begin
+  Result := sqr(x) + sqr(y);
+end;
+
+function TVec2f.Normal: TVec2f;
+var
+  Len : Single;
+begin
+  Len := Length;
+  if Len < EPS then
+    Result := Vec2f(0, 0)
+  else
+    Result := Self * (1 / Len);
+end;
+
+function TVec2f.Dist(const v: TVec2f): Single;
+begin
+  Result := (v - Self).Length;
+end;
+
+function TVec2f.Lerp(const v: TVec2f; t: Single): TVec2f;
+begin
+  Result := Self + (v - Self) * t;
+end;
+
+function TVec2f.Clamp(const Min, Max: TVec2f): TVec2f;
+begin
+  Result := Vec2f(CoreX.Clamp(x, Min.x, Max.x), CoreX.Clamp(y, Min.y, Max.y));
+end;
+
+function TVec2f.Rotate(Angle: Single): TVec2f;
+var
+  s, c : Single;
+begin
+  SinCos(Angle, s, c);
+  Result := Vec2f(x * c - y * s, x * s + y * c);
+end;
+
+function TVec2f.Angle(const v: TVec2f): Single;
+begin
+  Result := ArcCos(Dot(v) / sqrt(LengthQ * v.LengthQ))
 end;
 {$ENDREGION}
 
-{$REGION 'TMath'}
-function TMath.Vec2f(x, y: Single): TVec2f;
+{$REGION 'TVec3f'}
+{$IFDEF FPC}operator = {$ELSE}class operator TVec3f.Equal{$ENDIF}
+  (const a, b: TVec3f): Boolean;
+begin
+  with b - a do
+    Result := (abs(x) <= EPS) and (abs(y) <= EPS) and (abs(z) <= EPS);
+end;
+
+{$IFDEF FPC}operator + {$ELSE}class operator TVec3f.Add{$ENDIF}
+  (const a, b: TVec3f): TVec3f;
+begin
+  Result.x := a.x + b.x;
+  Result.y := a.y + b.y;
+  Result.z := a.z + b.z;
+end;
+
+{$IFDEF FPC}operator - {$ELSE}class operator TVec3f.Subtract{$ENDIF}
+  (const a, b: TVec3f): TVec3f;
+begin
+  Result.x := a.x - b.x;
+  Result.y := a.y - b.y;
+  Result.z := a.z - b.z;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TVec3f.Multiply{$ENDIF}
+  (const a, b: TVec3f): TVec3f;
+begin
+  Result.x := a.x * b.x;
+  Result.y := a.y * b.y;
+  Result.z := a.z * b.z;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TVec3f.Multiply{$ENDIF}
+  (const v: TVec3f; x: Single): TVec3f;
+begin
+  Result.x := v.x * x;
+  Result.y := v.y * x;
+  Result.z := v.z * x;
+end;
+
+function TVec3f.Dot(const v: TVec3f): Single;
+begin
+  Result := x * v.x + y * v.y + z * v.z;
+end;
+
+function TVec3f.Cross(const v: TVec3f): TVec3f;
+begin
+  Result.x := y * v.z - z * v.y;
+  Result.y := z * v.x - x * v.z;
+  Result.z := x * v.y - y * v.x;
+end;
+
+function TVec3f.Reflect(const n: TVec3f): TVec3f;
+begin
+  Result := Self - (n * (2 * Dot(n)));
+end;
+
+function TVec3f.Refract(const n: TVec3f; Factor: Single): TVec3f;
+var
+  d, s : Single;
+begin
+  d := Dot(n);
+  s := 1 - sqr(Factor) * (1 - sqr(d));
+  if s < EPS then
+    Result := Reflect(n)
+  else
+    Result := Self * Factor - n * (sqrt(s) + d * Factor);
+end;
+
+function TVec3f.Length: Single;
+begin
+  Result := sqrt(LengthQ);
+end;
+
+function TVec3f.LengthQ: Single;
+begin
+  Result := sqr(x) + sqr(y) + sqr(z);
+end;
+
+function TVec3f.Normal: TVec3f;
+var
+  Len : Single;
+begin
+  Len := Length;
+  if Len < EPS then
+    Result := Vec3f(0, 0, 0)
+  else
+    Result := Self * (1 / Len);
+end;
+
+function TVec3f.Dist(const v: TVec3f): Single;
+begin
+  Result := (v - Self).Length;
+end;
+
+function TVec3f.Lerp(const v: TVec3f; t: Single): TVec3f;
+begin
+  Result := Self + (v - Self) * t;
+end;
+
+function TVec3f.Clamp(const Min, Max: TVec3f): TVec3f;
+begin
+  Result := Vec3f(CoreX.Clamp(x, Min.x, Max.x), CoreX.Clamp(y, Min.y, Max.y), CoreX.Clamp(z, Min.z, Max.z));
+end;
+
+function TVec3f.Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
+var
+  s, c : Single;
+  v0, v1, v2 : TVec3f;
+begin
+  SinCos(Angle, s, c);
+  v0 := Axis * Dot(Axis);
+  v1 := Self - v0;
+  v2 := Axis.Cross(v1);
+  Result.x := v0.x + v1.x * c + v2.x * s;
+  Result.y := v0.y + v1.y * c + v2.y * s;
+  Result.z := v0.z + v1.z * c + v2.z * s;
+end;
+
+function TVec3f.Angle(const v: TVec3f): Single;
+begin
+  Result := ArcCos(Dot(v) / sqrt(LengthQ * v.LengthQ))
+end;
+{$ENDREGION}
+
+{$REGION 'Math'}
+function Vec2f(x, y: Single): TVec2f;
 begin
   Result.x := x;
   Result.y := y;
 end;
 
-function TMath.Vec3f(x, y, z: Single): TVec3f;
+function Vec3f(x, y, z: Single): TVec3f;
 begin
   Result.x := x;
   Result.y := y;
   Result.z := z;
 end;
 
-function TMath.Vec4f(x, y, z, w: Single): TVec4f;
+function Vec4f(x, y, z, w: Single): TVec4f;
 begin
   Result.x := x;
   Result.y := y;
@@ -979,15 +1250,7 @@ begin
   Result.w := w;
 end;
 
-function TMath.Max(x, y: Single): Single;
-begin
-  if x > y then
-    Result := x
-  else
-    Result := y;
-end;
-
-function TMath.Min(x, y: Single): Single;
+function Min(x, y: LongInt): LongInt;
 begin
   if x < y then
     Result := x
@@ -995,15 +1258,7 @@ begin
     Result := y;
 end;
 
-function TMath.Max(x, y: LongInt): LongInt;
-begin
-  if x > y then
-    Result := x
-  else
-    Result := y;
-end;
-
-function TMath.Min(x, y: LongInt): LongInt;
+function Min(x, y: Single): Single;
 begin
   if x < y then
     Result := x
@@ -1011,7 +1266,45 @@ begin
     Result := y;
 end;
 
-function TMath.Sign(x: Single): LongInt;
+function Max(x, y: LongInt): LongInt;
+begin
+  if x > y then
+    Result := x
+  else
+    Result := y;
+end;
+
+function Max(x, y: Single): Single;
+begin
+  if x > y then
+    Result := x
+  else
+    Result := y;
+end;
+
+function Clamp(x, min, max: LongInt): LongInt;
+begin
+  if x < min then
+    Result := min
+  else
+    if x > max then
+      Result := max
+    else
+      Result := x;
+end;
+
+function Clamp(x, min, max: Single): Single;
+begin
+  if x < min then
+    Result := min
+  else
+    if x > max then
+      Result := max
+    else
+      Result := x;
+end;
+
+function Sign(x: Single): LongInt;
 begin
   if x > 0 then
     Result := 1
@@ -1022,18 +1315,71 @@ begin
       Result := 0;
 end;
 
-function TMath.Ceil(const X: Extended): LongInt;
+function Ceil(const x: Extended): LongInt;
 begin
-  Result := LongInt(Trunc(X));
-  if Frac(X) > 0 then
+  Result := LongInt(Trunc(x));
+  if Frac(x) > 0 then
     Inc(Result);
 end;
 
-function TMath.Floor(const X: Extended): LongInt;
+function Floor(const x: Extended): LongInt;
 begin
-  Result := LongInt(Trunc(X));
-  if Frac(X) < 0 then
+  Result := LongInt(Trunc(x));
+  if Frac(x) < 0 then
     Dec(Result);
+end;
+
+function Tan(x: Single): Single;
+asm
+  fld x
+  fptan
+  fstp st(0)
+  fwait
+end;
+
+function CoTan(x: Single): Single;
+asm
+  fld x
+  fptan
+  fdivrp
+  fwait
+end;
+
+procedure SinCos(Theta: Single; out Sin, Cos: Single);
+asm
+  fld Theta
+  fsincos
+  fstp [edx]
+  fstp [eax]
+  fwait
+end;
+
+function ArcTan2(y, x: Single): Single;
+asm
+  fld y
+  fld x
+  fpatan
+  fwait
+end;
+
+function ArcCos(x: Single): Single;
+asm
+  fld x
+  fmul st, st
+  fsubr ONE
+  fsqrt
+  fld x
+  fpatan
+end;
+
+function ArcSin(x: Single): Single;
+asm
+  fld x
+  fld st
+  fmul st, st
+  fsubr ONE
+  fsqrt
+  fpatan
 end;
 {$ENDREGION}
 
@@ -1273,7 +1619,7 @@ function TStream.Read(out Buf; BufSize: LongInt): LongInt;
 begin
   if SType = stMemory then
   begin
-    Result := Math.Min(FPos + BufSize, FSize) - FPos;
+    Result := Min(FPos + BufSize, FSize) - FPos;
     Move(Mem^, Buf, Result);
   end else
     BlockRead(F, Buf, BufSize, Result);
@@ -1284,12 +1630,12 @@ function TStream.Write(const Buf; BufSize: LongInt): LongInt;
 begin
   if SType = stMemory then
   begin
-    Result := Math.Min(FPos + BufSize, FSize) - FPos;
+    Result := Min(FPos + BufSize, FSize) - FPos;
     Move(Buf, Mem^, Result);
   end else
     BlockWrite(F, Buf, BufSize, Result);
   Inc(FPos, Result);
-  Inc(FSize, Math.Max(0, FPos - FSize));
+  Inc(FSize, Max(0, FPos - FSize));
 end;
 {$ENDREGION}
 
@@ -1436,8 +1782,8 @@ begin
 end;
 {$ENDREGION}
 
-// Display =====================================================================
-{$REGION 'TDisplay'}
+// Screen ======================================================================
+{$REGION 'TScreen'}
 {$IFDEF WINDOWS}
 function WndProc(Hwnd, Msg: LongWord; WParam, LParam: LongInt): LongInt; stdcall;
 begin
@@ -1448,7 +1794,7 @@ begin
       Quit;
   // Activation / Deactivation
     WM_ACTIVATEAPP :
-      with Display do
+      with Screen do
       begin
         FActive := Word(wParam) = 1;
         if FullScreen then
@@ -1467,7 +1813,7 @@ begin
     begin
       Input.SetState(Input.Convert(WParam), (Msg = WM_KEYDOWN) or (Msg = WM_SYSKEYDOWN));
       if (Msg = WM_SYSKEYDOWN) and (WParam = 13) then // Alt + Enter
-        Display.FullScreen := not Display.FullScreen;
+        Screen.FullScreen := not Screen.FullScreen;
     end;
   // Mouse
     WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(KM_1, Msg = WM_LBUTTONDOWN);
@@ -1497,7 +1843,7 @@ begin
         Quit;
   // Activation / Deactivation
     FocusIn, FocusIn + 1 :
-      with Display do
+      with Screen do
         if (Event.xwindow = Handle) and (Active <> (Event._type = FocusIn)) then
         begin
           FActive := Event._type = FocusIn;
@@ -1514,7 +1860,7 @@ begin
       begin
         Input.SetState(Input.Convert(XLookupKeysym(@Event, 0)), Event._type = KeyPress);
         if (state and 8 <> 0) and (KeyCode = 36) and (Event._type = KeyPress) then // Alt + Enter
-          Display.FullScreen := not Display.FullScreen;
+          Screen.FullScreen := not Screen.FullScreen;
       end;
   // Mouse
     ButtonPress, ButtonPress + 1 :
@@ -1539,14 +1885,13 @@ begin
 end;
 {$ENDIF}
 
-procedure TDisplay.Init;
+procedure TScreen.Init;
 {$IFDEF WINDOWS}
 type
   TwglChoosePixelFormatARB = function (DC: LongWord; const piList, pfFList: Pointer; nMaxFormats: LongWord; piFormats, nNumFormats: Pointer): Boolean; stdcall;
 const
   AttribF : array [0..1] of Single = (0, 0);
 var
-  WndClass : TWndClassEx;
   PFD      : TPixelFormatDescriptor;
   ChoisePF : TwglChoosePixelFormatARB;
   PFIdx    : LongInt;
@@ -1556,15 +1901,6 @@ begin
   FHeight  := 600;
   FCaption := 'CoreX';
 // Init structures
-  FillChar(WndClass, SizeOf(WndClass), 0);
-  with WndClass do
-  begin
-    cbSize        := SizeOf(WndClass);
-    lpfnWndProc   := @WndProc;
-    hCursor       := 65553;
-    hbrBackground := 9;
-    lpszClassName := WND_CLASS;
-  end;
   FillChar(PFD, SizeOf(PFD), 0);
   with PFD do
   begin
@@ -1595,9 +1931,9 @@ begin
     DestroyWindow(Handle);
   end;
 // Window
-  RegisterClassExA(WndClass);
-  Handle := CreateWindowExA(0, WND_CLASS, PAnsiChar(AnsiString(FCaption)), 0,
+  Handle := CreateWindowExA(0, 'STATIC', PAnsiChar(AnsiString(FCaption)), 0,
                             0, 0, 0, 0, 0, 0, HInstance, nil);
+  SetWindowLongA(Handle, GWL_WNDPROC, LongWord(@WndProc));
   SendMessageA(Handle, WM_SETICON, 1, LoadIconA(HInstance, 'MAINICON'));
 // OpenGL
   DC := GetDC(Handle);
@@ -1647,7 +1983,7 @@ begin
 end;
 {$ENDIF}
 
-procedure TDisplay.Free;
+procedure TScreen.Free;
 {$IFDEF WINDOWS}
 begin
   Render.Free;
@@ -1655,7 +1991,6 @@ begin
   wglDeleteContext(RC);
   ReleaseDC(Handle, DC);
   DestroyWindow(Handle);
-  UnregisterClassA(WND_CLASS, HInstance);
 end;
 {$ENDIF}
 {$IFDEF LINUX}
@@ -1675,7 +2010,7 @@ begin
 end;
 {$ENDIF}
 
-procedure TDisplay.Update;
+procedure TScreen.Update;
 {$IFDEF WINDOWS}
 var
   Msg : TMsg;
@@ -1699,7 +2034,7 @@ begin
 end;
 {$ENDIF}
 
-procedure TDisplay.Restore;
+procedure TScreen.Restore;
 {$IFDEF WINDOWS}
 var
   Style : LongWord;
@@ -1776,7 +2111,7 @@ begin
 end;
 {$ENDIF}
 
-procedure TDisplay.SetFullScreen(Value: Boolean);
+procedure TScreen.SetFullScreen(Value: Boolean);
 {$IFDEF WINDOWS}
 var
   DevMode : TDeviceMode;
@@ -1824,14 +2159,14 @@ begin
 end;
 {$ENDIF}
 
-procedure TDisplay.SetVSync(Value: Boolean);
+procedure TScreen.SetVSync(Value: Boolean);
 begin
   FVSync := Value;
   if @gl.SwapInterval <> nil then
     gl.SwapInterval(Ord(FVSync));
 end;
 
-procedure TDisplay.SetCaption(const Value: string);
+procedure TScreen.SetCaption(const Value: string);
 begin
   FCaption := Value;
 {$IFDEF WINDOWS}
@@ -1842,14 +2177,14 @@ begin
 {$ENDIF}
 end;
 
-procedure TDisplay.Resize(W, H: LongInt);
+procedure TScreen.Resize(W, H: LongInt);
 begin
   FWidth  := W;
   FHeight := H;
   FullScreen := FullScreen; // Resize screen
 end;
 
-procedure TDisplay.Swap;
+procedure TScreen.Swap;
 begin
 {$IFDEF WINDOWS}
   SwapBuffers(DC);
@@ -1930,18 +2265,18 @@ begin
   SetState(KM_WHDN, False);
 {$IFDEF WINDOWS}
 // Mouse
-  GetWindowRect(Display.Handle, Rect);
+  GetWindowRect(Screen.Handle, Rect);
   GetCursorPos(Pos);
   if not FCapture then
   begin
   // Calc mouse cursor pos (Client Space)
-    ScreenToClient(Display.Handle, Pos);
+    ScreenToClient(Screen.Handle, Pos);
     Mouse.Delta.X := Pos.X - Mouse.Pos.X;
     Mouse.Delta.Y := Pos.Y - Mouse.Pos.Y;
     Mouse.Pos.X := Pos.X;
     Mouse.Pos.Y := Pos.Y;
   end else
-    if Display.Active then // Main window active?
+    if Screen.Active then // Main window active?
     begin
     // Window Center Pos (Screen Space)
       CPos.X := (Rect.Right - Rect.Left) div 2;
@@ -1990,7 +2325,7 @@ begin
   end;
 {$ENDIF}
 {$IFDEF LINUX}
-  with Display do
+  with Screen do
   begin
       XQueryPointer(XDisp, Handle, @WRoot, @WChild, @rX, @rY, @X, @Y, @Mask);
       if not FCapture then
@@ -2061,7 +2396,7 @@ end;
 // Sound =======================================================================
 {$REGION 'TSample'}
 { TSample }
-function TSample.Load(const FileName: string): TSample;
+procedure TSample.Load(const FileName: string);
 var
   Stream : TStream;
   Header : record
@@ -2125,7 +2460,7 @@ end;
 
 procedure TSample.SetVolume(Value: LongInt);
 begin
-  FVolume := Math.Min(100, Math.Max(0, Value));
+  FVolume := Min(100, Max(0, Value));
 end;
 {$ENDREGION}
 
@@ -2234,16 +2569,6 @@ begin
               break;
             end;
           Amp := Sample^.Volume * Data^[sidx] div 100;
-  {
-  // Echo
-          if sidx > 200 * 22050 div 1000 then
-            Amp := Amp + Data^[sidx - 200 * 22050 div 1000] div 2;
-          if sidx > 400 * 22050 div 1000 then
-            Amp := Amp + Data^[sidx - 400 * 22050 div 1000] div 4;
-  // Low Pass filter
-          Amp := PAmp + Trunc(0.1 * (Amp - PAmp));
-          PAmp := Amp;
-  }
           AmpData[i].L := AmpData[i].L + Amp;
           AmpData[i].R := AmpData[i].R + Amp;
         end;
@@ -2252,8 +2577,8 @@ begin
   // Normalize
     for i := 0 to SAMPLE_COUNT - 1 do
     begin
-      Data^[i].L := Math.Max(Low(SmallInt), Math.Min(High(SmallInt), AmpData[i].L));
-      Data^[i].R := Math.Max(Low(SmallInt), Math.Min(High(SmallInt), AmpData[i].R));
+      Data^[i].L := Clamp(AmpData[i].L, Low(SmallInt), High(SmallInt));
+      Data^[i].R := Clamp(AmpData[i].R, Low(SmallInt), High(SmallInt));
     end;
   end else
     FillChar(Data^, SND_BUF_SIZE, 0);
@@ -2300,7 +2625,7 @@ begin
 {$IFDEF WINDOWS}
   QueryPerformanceFrequency(TimeFreq);
 {$ENDIF}
-  Display.Restore;
+  Screen.Restore;
   Blend := btNormal;
 
   gl.Enable(GL_TEXTURE_2D);
@@ -2322,7 +2647,7 @@ begin
   gl.Free;
 end;
 
-function TRender.GeLongWord: LongInt;
+function TRender.GetTime: LongInt;
 {$IFDEF WINDOWS}
 var
   Count : Int64;
@@ -2336,7 +2661,7 @@ var
   tv : TTimeVal;
 begin
   gettimeofday(tv, nil);
-  Result := 1000 * tv.tv_sec + tv.tv_usec div 1000;
+  Result := tv.tv_sec * 1000 + tv.tv_usec div 1000;
 end;
 {$ENDIF}
 
@@ -2396,7 +2721,7 @@ var
 begin
   x := FOV * pi / 180 * 0.5;
   y := zNear * Sin(x) / Cos(x);
-  x := y * (Display.Width / Display.Height);
+  x := y * (Screen.Width / Screen.Height);
   gl.MatrixMode(GL_PROJECTION);
   gl.LoadIdentity;
   gl.Frustum(-x, x, -y, y, zNear, zFar);
@@ -2416,10 +2741,10 @@ procedure TRender.Quad(x, y, w, h, s, t, sw, th: Single);
 var
   v : array [0..3] of TVec4f;
 begin
-  v[0] := Math.Vec4f(x, y, s, t + th);
-  v[1] := Math.Vec4f(x + w, y, s + sw, v[0].w);
-  v[2] := Math.Vec4f(v[1].x, y + h, v[1].z, t);
-  v[3] := Math.Vec4f(x, v[2].y, s, t);
+  v[0] := Vec4f(x, y, s, t + th);
+  v[1] := Vec4f(x + w, y, s + sw, v[0].w);
+  v[2] := Vec4f(v[1].x, y + h, v[1].z, t);
+  v[3] := Vec4f(x, v[2].y, s, t);
 {
   v[0] := Math.Vec4f(x, y, s, t);
   v[1] := Math.Vec4f(x + w, y, s + sw, v[0].w);
@@ -2453,7 +2778,6 @@ const
 var
   Stream  : TStream;
   i, w, h : LongInt;
-  Size : LongInt;
   Data : Pointer;
   f, c : TGLConst;
   DDS  : record
@@ -2488,48 +2812,56 @@ begin
       end;
       gl.TexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
     // Select OpenGL texture format
-      DDS.pfRGBbpp := DDS.POLSize * 8 div (DDS.Width * DDS.Height);
       f := GL_RGB8;
       c := GL_BGR;
-      if DDS.pfFlags and DDPF_FOURCC > 0 then
-        case DDS.pfFourCC[3] of
-          '1' : f := GL_COMPRESSED_RGBA_S3TC_DXT1;
-          '3' : f := GL_COMPRESSED_RGBA_S3TC_DXT3;
-          '5' : f := GL_COMPRESSED_RGBA_S3TC_DXT5;
-        end
-      else
-        if DDS.pfFlags and DDPF_ALPHAPIXELS > 0 then
-        begin
-          f := GL_RGBA8;
-          c := GL_BGRA;
-        end;
-
-      for i := 0 to Math.Max(DDS.MipMapCount, 1) - 1 do
+      with DDS do
       begin
-        w := Math.Max(DDS.Width shr i, 1);
-        h := Math.Max(DDS.Height shr i, 1);
-        Size := (w * h * DDS.pfRGBbpp) div 8;
-        Stream.Read(Data^, Size);
-        if (DDS.pfFlags and DDPF_FOURCC) > 0 then
-        begin
-          if (w < 4) or (h < 4) then
+        if pfFlags and DDPF_FOURCC = DDPF_FOURCC then
+          case pfFourCC[3] of
+            '1' : f := GL_COMPRESSED_RGBA_S3TC_DXT1;
+            '3' : f := GL_COMPRESSED_RGBA_S3TC_DXT3;
+            '5' : f := GL_COMPRESSED_RGBA_S3TC_DXT5;
+          end
+        else
+          if pfFlags and DDPF_ALPHAPIXELS = DDPF_ALPHAPIXELS then
           begin
-            DDS.MipMapCount := i;
-            Break;
+            f := GL_RGBA8;
+            c := GL_BGRA;
           end;
-          gl.CompressedTexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, Size, Data)
+
+        if MipMapCount = 0 then
+          MipMapCount := 1
+        else
+          for i := 0 to MipMapCount - 1 do
+            if (Width shr i < 4) or (Height shr i < 4) then
+            begin
+              MipMapCount := i;
+              break;
+            end;
+
+        pfRGBbpp := POLSize * 8 div (Width * Height);
+
+        for i := 0 to MipMapCount - 1 do
+        begin
+          w := Width shr i;
+          h := Height shr i;
+          Size := (w * h * pfRGBbpp) div 8;
+          Stream.Read(Data^, Size);
+          if pfFlags and DDPF_FOURCC = DDPF_FOURCC then
+            gl.CompressedTexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, Size, Data)
+          else
+            gl.TexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, c, GL_UNSIGNED_BYTE, Data);
+        end;
+        FreeMemory(Data);
+      // Filter
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        if MipMapCount > 1 then
+        begin
+          gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+          gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, TGLConst(MipMapCount - 1));
         end else
-          gl.TexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, c, GL_UNSIGNED_BYTE, Data);
+          gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
       end;
-      FreeMemory(Data);
-    // Filter
-      gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      if DDS.MipMapCount > 0 then
-      begin
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, TGLConst(DDS.MipMapCount - 1));
-      end else
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     end;
     Stream.Free;
   end;
@@ -2626,8 +2958,8 @@ var
 begin
   CurIndex := -1;
   FPlaying := False;
-  Pos      := Math.Vec2f(0, 0);
-  Scale    := Math.Vec2f(1, 1);
+  Pos      := Vec2f(0, 0);
+  Scale    := Vec2f(1, 1);
   Angle    := 0;
 
   Cfg.Load(FileName);
@@ -2783,10 +3115,8 @@ begin
       if Proc^[i] = nil then
         Proc^[i] := GetProcAddress(Lib, ProcName[i]);
     {$IFDEF DEBUG}
-{
       if Proc^[i] = nil then
         Writeln('- ', ProcName[i]);
-}
     {$ENDIF}
     end;
   end;
@@ -2804,31 +3134,31 @@ procedure Start(PInit, PFree, PRender: TCoreProc);
 begin
   Utils.Init;
   chdir(Utils.ExtractFileDir(ParamStr(0)));
-  Display.Init;
+  Screen.Init;
   Input.Init;
   Sound.Init;
 
   PInit;
-  while not Display.FQuit do
+  while not Screen.FQuit do
   begin
     Input.Update;
-    Display.Update;
+    Screen.Update;
     Render.FDeltaTime := (Render.Time - Render.OldTime) / 1000;
     Render.OldTime := Render.Time;
     PRender;
-    Display.Swap;
+    Screen.Swap;
   end;
   PFree;
 
   Sound.Free;
   Input.Free;
-  Display.Free;
+  Screen.Free;
   Utils.Free;
 end;
 
 procedure Quit;
 begin
-  Display.FQuit := True;
+  Screen.FQuit := True;
 end;
 {$ENDREGION}
 

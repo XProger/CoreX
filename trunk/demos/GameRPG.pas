@@ -8,7 +8,7 @@ unit GameRPG;
 interface
 
 uses
-  Demos, CoreX, Windows, Messages;
+  Demos, CoreX;
 
 implementation
 
@@ -19,7 +19,7 @@ var
 procedure onInit;
 begin
   Suzaku.Load('media/xrpg/suzaku.spr');
-  Suzaku.Pos := CoreX.Math.Vec2f(400, 300);
+  Suzaku.Pos := Vec2f(400, 300);
 end;
 
 procedure onFree;
@@ -33,7 +33,7 @@ const
   SDir : array [0..3] of Char = ('s', 'w', 'n', 'e');
 begin
   Render.Clear(True, False);
-  Render.Set2D(Display.Width, Display.Height);
+  Render.Set2D(Screen.Width, Screen.Height);
 
   with Suzaku, Input do
   begin

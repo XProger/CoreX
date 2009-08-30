@@ -21,7 +21,7 @@ procedure onInit;
 begin
 // Hero sprite
   Hero.Load('media/zero.spr');
-  Hero.Pos := Math.Vec2f(400, 300);
+  Hero.Pos := Vec2f(400, 300);
 // Explosion sprite
   Explosion.Load('media/explosion.spr');
   Shot.Load('media/explosion.wav');
@@ -37,7 +37,7 @@ end;
 procedure onRender;
 begin
   Render.Clear(True, False);
-  Render.Set2D(Display.Width, Display.Height);
+  Render.Set2D(Screen.Width, Screen.Height);
 
   with Hero do
   begin
@@ -58,7 +58,7 @@ begin
     with Explosion do
     begin
       with Input.Mouse.Pos do
-        Pos := Math.Vec2f(X, Display.Height - Y);
+        Pos := Vec2f(X, Screen.Height - Y);
       Stop;
       Play('boom', False);
       Shot.Play;
