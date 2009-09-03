@@ -40,11 +40,11 @@ type
   TVec2f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y : Single;
   {$IFNDEF FPC}
-    class operator Equal(const a, b: TVec2f): Boolean; inline;
-    class operator Add(const a, b: TVec2f): TVec2f; inline;
-    class operator Subtract(const a, b: TVec2f): TVec2f; inline;
-    class operator Multiply(const a, b: TVec2f): TVec2f; inline;
-    class operator Multiply(const v: TVec2f; x: Single): TVec2f; inline;
+    class operator Equal(const a, b: TVec2f): Boolean;
+    class operator Add(const a, b: TVec2f): TVec2f;
+    class operator Subtract(const a, b: TVec2f): TVec2f;
+    class operator Multiply(const a, b: TVec2f): TVec2f;
+    class operator Multiply(const v: TVec2f; x: Single): TVec2f;
   {$ENDIF}
     function Dot(const v: TVec2f): Single;
     function Reflect(const n: TVec2f): TVec2f;
@@ -62,11 +62,11 @@ type
   TVec3f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y, z : Single;
   {$IFNDEF FPC}
-    class operator Equal(const a, b: TVec3f): Boolean; inline;
-    class operator Add(const a, b: TVec3f): TVec3f; inline;
-    class operator Subtract(const a, b: TVec3f): TVec3f; inline;
-    class operator Multiply(const a, b: TVec3f): TVec3f; inline;
-    class operator Multiply(const v: TVec3f; x: Single): TVec3f; inline;
+    class operator Equal(const a, b: TVec3f): Boolean;
+    class operator Add(const a, b: TVec3f): TVec3f;
+    class operator Subtract(const a, b: TVec3f): TVec3f;
+    class operator Multiply(const a, b: TVec3f): TVec3f;
+    class operator Multiply(const v: TVec3f; x: Single): TVec3f;
   {$ENDIF}
     function Dot(const v: TVec3f): Single;
     function Cross(const v: TVec3f): TVec3f;
@@ -86,19 +86,53 @@ type
     x, y, z, w : Single;
   end;
 
+  TMat4f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
+  private
+    function  GetPos: TVec3f;
+    procedure SetPos(const v: TVec3f);
+  public
+    e00, e10, e20, e30,
+    e01, e11, e21, e31,
+    e02, e12, e22, e32,
+    e03, e13, e23, e33: Single;
+  {$IFNDEF FPC}
+    class operator Add(const a, b: TMat4f): TMat4f;
+    class operator Multiply(const a, b: TMat4f): TMat4f;
+    class operator Multiply(const m: TMat4f; const v: TVec3f): TVec3f;
+    class operator Multiply(const m: TMat4f; x: Single): TMat4f;
+  {$ENDIF}
+    procedure Identity;
+    function Det: Single;
+    function Inverse: TMat4f;
+    function Transpose: TMat4f;
+    function FromAxisAngle(Angle: Single; const Axis: TVec3f): TMat4f;
+    procedure Translate(const v: TVec3f);
+    procedure Rotate(Angle: Single; const Axis: TVec3f);
+    procedure Scale(const v: TVec3f);
+    procedure Ortho(Left, Right, Bottom, Top, ZNear, ZFar: Single);
+    procedure Frustum(Left, Right, Bottom, Top, ZNear, ZFar: Single);
+    procedure Perspective(FOV, Aspect, ZNear, ZFar: Single);
+    property Pos: TVec3f read GetPos write SetPos;
+  end;
+
 {$IFDEF FPC}
 // TVec2f
-  operator = (const a, b: TVec2f): Boolean; inline;
-  operator + (const a, b: TVec2f): TVec2f; inline;
-  operator - (const a, b: TVec2f): TVec2f; inline;
-  operator * (const a, b: TVec2f): TVec2f; inline;
-  operator * (const v: TVec2f; x: Single): TVec2f; inline;
+  operator = (const a, b: TVec2f): Boolean;
+  operator + (const a, b: TVec2f): TVec2f;
+  operator - (const a, b: TVec2f): TVec2f;
+  operator * (const a, b: TVec2f): TVec2f;
+  operator * (const v: TVec2f; x: Single): TVec2f;
 // TVec3f
-  operator = (const a, b: TVec3f): Boolean; inline;
-  operator + (const a, b: TVec3f): TVec3f; inline;
-  operator - (const a, b: TVec3f): TVec3f; inline;
-  operator * (const a, b: TVec3f): TVec3f; inline;
-  operator * (const v: TVec3f; x: Single): TVec3f; inline;
+  operator = (const a, b: TVec3f): Boolean;
+  operator + (const a, b: TVec3f): TVec3f;
+  operator - (const a, b: TVec3f): TVec3f;
+  operator * (const a, b: TVec3f): TVec3f;
+  operator * (const v: TVec3f; x: Single): TVec3f;
+// TMat4f
+  operator + (const a, b: TMat4f): TMat4f;
+  operator * (const a, b: TMat4f): TMat4f;
+  operator * (const m: TMat4f; const v: TVec3f): TVec3f;
+  operator * (const m: TMat4f; x: Single): TMat4f;
 {$ENDIF}
 
   function Vec2f(x, y: Single): TVec2f; inline;
@@ -108,9 +142,9 @@ type
   function Min(x, y: Single): Single; overload; inline;
   function Max(x, y: LongInt): LongInt; overload; inline;
   function Max(x, y: Single): Single; overload; inline;
-  function Clamp(x, min, max: LongInt): LongInt; overload; inline;
-  function Clamp(x, min, max: Single): Single; overload; inline;
-  function Sign(x: Single): LongInt; inline;
+  function Clamp(x, Min, Max: LongInt): LongInt; overload; inline;
+  function Clamp(x, Min, Max: Single): Single; overload; inline;
+  function Sign(x: Single): LongInt;
   function Ceil(const x: Extended): LongInt;
   function Floor(const x: Extended): LongInt;
   function Tan(x: Single): Single; assembler;
@@ -118,12 +152,22 @@ type
   function ArcTan2(y, x: Single): Single; assembler;
   function ArcCos(x: Single): Single; assembler;
   function ArcSin(x: Single): Single; assembler;
+  function Pow(x, y: Single): Single;
 {$ENDREGION}
 
 // Utils -----------------------------------------------------------------------
 {$REGION 'Utils'}
 type
   TCharSet = set of AnsiChar;
+
+  TRGBA = record
+    R, G, B, A : Byte;
+  end;
+
+  PRect = ^TRect;
+  TRect = record
+    Left, Top, Right, Bottom : LongInt;
+  end;
 
   PDataArray = ^TDataArray;
   TDataArray = array [0..1] of SmallInt;
@@ -170,7 +214,12 @@ type
     function DeleteChars(const Str: string; Chars: TCharSet): string;
     function ExtractFileDir(const Path: string): string;
   end;
-
+{
+  TThread = object
+    procedure Init;
+    procedure Free;
+  end;
+}
   TStream = object
   private
     SType  : (stFile, stMemory);
@@ -304,6 +353,7 @@ type
     FCapture    : Boolean;
     FDown, FHit : array [TInputKey] of Boolean;
     FLastKey    : TInputKey;
+    FText       : string;
     procedure Init;
     procedure Free;
     procedure Reset;
@@ -320,6 +370,7 @@ type
     property Down[InputKey: TInputKey]: Boolean read GetDown;
     property Hit[InputKey: TInputKey]: Boolean read GetHit;
     property Capture: Boolean read FCapture write SetCapture;
+    property Text: string read FText;
   end;
 {$ENDREGION}
 
@@ -395,7 +446,7 @@ type
     procedure Color(R, G, B, A: Byte);
     procedure Set2D(Width, Height: LongInt);
     procedure Set3D(FOV: Single; zNear: Single = 0.1; zFar: Single = 1000);
-    procedure Quad(x, y, w, h, s, t, sw, th: Single); inline;
+    procedure Quad(x, y, w, h, s, t, sw, th: Single);
     property Time: LongInt read GetTime;
     property DeltaTime: Single read FDeltaTime;
     property Blend: TBlendType write SetBlend;
@@ -412,8 +463,10 @@ type
     FWidth  : LongInt;
     FHeight : LongInt;
   public
+    procedure Init(DWidth, DHeight: LongInt; DataRGBA: Pointer);
     procedure Load(const FileName: string);
     procedure Free;
+    procedure SetData(X, Y, DWidth, DHeight: LongInt; DataRGBA: Pointer);
     procedure Enable(Channel: LongInt = 0);
     property Width: LongInt read FWidth;
     property Height: LongInt read FHeight;
@@ -560,7 +613,8 @@ type
     DeleteTextures : procedure (n: LongInt; textures: Pointer); stdcall;
     BindTexture    : procedure (target: TGLConst; texture: LongWord); stdcall;
     TexParameteri  : procedure (target, pname, param: TGLConst); stdcall;
-    TexImage2D     : procedure (target: TGLConst; level: LongInt; internalformat: TGLConst; width, height, border: LongInt; format, _type: TGLConst; pixels: Pointer); stdcall;
+    TexImage2D     : procedure (target: TGLConst; level: LongInt; internalformat: TGLConst; width, height, border: LongInt; format, _type: TGLConst; data: Pointer); stdcall;
+    TexSubImage2D  : procedure (target: TGLConst; level, x, y, width, height: LongInt; format, _type: TGLConst; data: Pointer); stdcall;
     CompressedTexImage2D : procedure (target: TGLConst; level: LongInt; internalformat: TGLConst; width, height, border, imageSize: LongInt; data: Pointer); stdcall;
     ActiveTexture        : procedure (texture: TGLConst); stdcall;
     ClientActiveTexture  : procedure (texture: TGLConst); stdcall;
@@ -580,8 +634,11 @@ type
     Beginp         : procedure (mode: TGLConst); stdcall;
     Endp           : procedure;
     Color4ub       : procedure (r, g, b, a: Byte); stdcall;
+    Vertex2f       : procedure (x, y: Single); stdcall;
     Vertex2fv      : procedure (xy: Pointer); stdcall;
+    Vertex3f       : procedure (x, y, z: Single); stdcall;
     Vertex3fv      : procedure (xyz: Pointer); stdcall;
+    TexCoord2f     : procedure (s, t: Single); stdcall;
     TexCoord2fv    : procedure (st: Pointer); stdcall;
     EnableClientState  : procedure (_array: TGLConst); stdcall;
     DisableClientState : procedure (_array: TGLConst); stdcall;
@@ -603,6 +660,12 @@ type
     Ortho           : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     Frustum         : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
   end;
+{$ENDREGION}
+
+// Common ----------------------------------------------------------------------
+{$REGION 'Common'}
+  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
+  function RGBA(R, G, B, A: Byte): TRGBA; inline;
 {$ENDREGION}
 
 var
@@ -651,10 +714,6 @@ type
 
   TPoint = packed record
     X, Y : LongInt;
-  end;
-
-  TRect = packed record
-    Left, Top, Right, Bottom : LongInt;
   end;
 
   TJoyCaps = packed record
@@ -717,6 +776,7 @@ const
   WM_ACTIVATEAPP      = $001C;
   WM_SETICON          = $0080;
   WM_KEYDOWN          = $0100;
+  WM_CHAR             = $0102;
   WM_SYSKEYDOWN       = $0104;
   WM_LBUTTONDOWN      = $0201;
   WM_RBUTTONDOWN      = $0204;
@@ -1233,6 +1293,234 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TMat4f'}
+{ TMat4f }
+function TMat4f.GetPos: TVec3f;
+begin
+  Result := Vec3f(e03, e13, e23);
+end;
+
+procedure TMat4f.SetPos(const v: TVec3f);
+begin
+  e03 := v.x;
+  e13 := v.y;
+  e23 := v.z;
+end;
+
+{$IFDEF FPC}operator + {$ELSE}class operator TMat4f.Add{$ENDIF}
+  (const a, b: TMat4f): TMat4f;
+begin
+  with Result do
+  begin
+    e00 := a.e00 + b.e00; e10 := a.e10 + b.e10; e20 := a.e20 + b.e20; e30 := a.e30 + b.e30;
+    e01 := a.e01 + b.e01; e11 := a.e11 + b.e11; e21 := a.e21 + b.e21; e31 := a.e31 + b.e31;
+    e02 := a.e02 + b.e02; e12 := a.e12 + b.e12; e22 := a.e22 + b.e22; e32 := a.e32 + b.e32;
+    e03 := a.e03 + b.e03; e13 := a.e13 + b.e13; e23 := a.e23 + b.e23; e33 := a.e33 + b.e33;
+  end;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TMat4f.Multiply{$ENDIF}
+  (const a, b: TMat4f): TMat4f;
+begin
+  with Result do
+  begin
+    e00 := a.e00 * b.e00 + a.e01 * b.e10 + a.e02 * b.e20 + a.e03 * b.e30;
+    e10 := a.e10 * b.e00 + a.e11 * b.e10 + a.e12 * b.e20 + a.e13 * b.e30;
+    e20 := a.e20 * b.e00 + a.e21 * b.e10 + a.e22 * b.e20 + a.e23 * b.e30;
+    e30 := a.e30 * b.e00 + a.e31 * b.e10 + a.e32 * b.e20 + a.e33 * b.e30;
+    e01 := a.e00 * b.e01 + a.e01 * b.e11 + a.e02 * b.e21 + a.e03 * b.e31;
+    e11 := a.e10 * b.e01 + a.e11 * b.e11 + a.e12 * b.e21 + a.e13 * b.e31;
+    e21 := a.e20 * b.e01 + a.e21 * b.e11 + a.e22 * b.e21 + a.e23 * b.e31;
+    e31 := a.e30 * b.e01 + a.e31 * b.e11 + a.e32 * b.e21 + a.e33 * b.e31;
+    e02 := a.e00 * b.e02 + a.e01 * b.e12 + a.e02 * b.e22 + a.e03 * b.e32;
+    e12 := a.e10 * b.e02 + a.e11 * b.e12 + a.e12 * b.e22 + a.e13 * b.e32;
+    e22 := a.e20 * b.e02 + a.e21 * b.e12 + a.e22 * b.e22 + a.e23 * b.e32;
+    e32 := a.e30 * b.e02 + a.e31 * b.e12 + a.e32 * b.e22 + a.e33 * b.e32;
+    e03 := a.e00 * b.e03 + a.e01 * b.e13 + a.e02 * b.e23 + a.e03 * b.e33;
+    e13 := a.e10 * b.e03 + a.e11 * b.e13 + a.e12 * b.e23 + a.e13 * b.e33;
+    e23 := a.e20 * b.e03 + a.e21 * b.e13 + a.e22 * b.e23 + a.e23 * b.e33;
+    e33 := a.e30 * b.e03 + a.e31 * b.e13 + a.e32 * b.e23 + a.e33 * b.e33;
+  end;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TMat4f.Multiply{$ENDIF}
+  (const m: TMat4f; const v: TVec3f): TVec3f;
+begin
+  with m do
+    Result := Vec3f(e00 * v.x + e01 * v.y + e02 * v.z + e03,
+                    e10 * v.x + e11 * v.y + e12 * v.z + e13,
+                    e20 * v.x + e21 * v.y + e22 * v.z + e23);
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TMat4f.Multiply{$ENDIF}
+  (const m: TMat4f; x: Single): TMat4f;
+begin
+  with Result do
+  begin
+    e00 := m.e00 * x; e10 := m.e10 * x; e20 := m.e20 * x; e30 := m.e30 * x;
+    e01 := m.e01 * x; e11 := m.e11 * x; e21 := m.e21 * x; e31 := m.e31 * x;
+    e02 := m.e02 * x; e12 := m.e12 * x; e22 := m.e22 * x; e32 := m.e32 * x;
+    e03 := m.e03 * x; e13 := m.e13 * x; e23 := m.e23 * x; e33 := m.e33 * x;
+  end;
+end;
+
+procedure TMat4f.Identity;
+const
+  IdentMat : TMat4f = (
+    e00: 1; e10: 0; e20: 0; e30: 0;
+    e01: 0; e11: 1; e21: 0; e31: 0;
+    e02: 0; e12: 0; e22: 1; e32: 0;
+    e03: 0; e13: 0; e23: 0; e33: 1;
+  );
+begin
+  Self := IdentMat;
+end;
+
+function TMat4f.Det: Single;
+begin
+  Result := e00 * (e11 * (e22 * e33 - e32 * e23) - e21 * (e12 * e33 - e32 * e13) + e31 * (e12 * e23 - e22 * e13)) -
+            e10 * (e01 * (e22 * e33 - e32 * e23) - e21 * (e02 * e33 - e32 * e03) + e31 * (e02 * e23 - e22 * e03)) +
+            e20 * (e01 * (e12 * e33 - e32 * e13) - e11 * (e02 * e33 - e32 * e03) + e31 * (e02 * e13 - e12 * e03)) -
+            e30 * (e01 * (e12 * e23 - e22 * e13) - e11 * (e02 * e23 - e22 * e03) + e21 * (e02 * e13 - e12 * e03));
+end;
+
+function TMat4f.Inverse: TMat4f;
+var
+  D : Single;
+begin
+  D := 1 / Det;
+  Result.e00 :=  (e11 * (e22 * e33 - e32 * e23) - e21 * (e12 * e33 - e32 * e13) + e31 * (e12 * e23 - e22 * e13)) * D;
+  Result.e01 := -(e01 * (e22 * e33 - e32 * e23) - e21 * (e02 * e33 - e32 * e03) + e31 * (e02 * e23 - e22 * e03)) * D;
+  Result.e02 :=  (e01 * (e12 * e33 - e32 * e13) - e11 * (e02 * e33 - e32 * e03) + e31 * (e02 * e13 - e12 * e03)) * D;
+  Result.e03 := -(e01 * (e12 * e23 - e22 * e13) - e11 * (e02 * e23 - e22 * e03) + e21 * (e02 * e13 - e12 * e03)) * D;
+  Result.e10 := -(e10 * (e22 * e33 - e32 * e23) - e20 * (e12 * e33 - e32 * e13) + e30 * (e12 * e23 - e22 * e13)) * D;
+  Result.e11 :=  (e00 * (e22 * e33 - e32 * e23) - e20 * (e02 * e33 - e32 * e03) + e30 * (e02 * e23 - e22 * e03)) * D;
+  Result.e12 := -(e00 * (e12 * e33 - e32 * e13) - e10 * (e02 * e33 - e32 * e03) + e30 * (e02 * e13 - e12 * e03)) * D;
+  Result.e13 :=  (e00 * (e12 * e23 - e22 * e13) - e10 * (e02 * e23 - e22 * e03) + e20 * (e02 * e13 - e12 * e03)) * D;
+  Result.e20 :=  (e10 * (e21 * e33 - e31 * e23) - e20 * (e11 * e33 - e31 * e13) + e30 * (e11 * e23 - e21 * e13)) * D;
+  Result.e21 := -(e00 * (e21 * e33 - e31 * e23) - e20 * (e01 * e33 - e31 * e03) + e30 * (e01 * e23 - e21 * e03)) * D;
+  Result.e22 :=  (e00 * (e11 * e33 - e31 * e13) - e10 * (e01 * e33 - e31 * e03) + e30 * (e01 * e13 - e11 * e03)) * D;
+  Result.e23 := -(e00 * (e11 * e23 - e21 * e13) - e10 * (e01 * e23 - e21 * e03) + e20 * (e01 * e13 - e11 * e03)) * D;
+  Result.e30 := -(e10 * (e21 * e32 - e31 * e22) - e20 * (e11 * e32 - e31 * e12) + e30 * (e11 * e22 - e21 * e12)) * D;
+  Result.e31 :=  (e00 * (e21 * e32 - e31 * e22) - e20 * (e01 * e32 - e31 * e02) + e30 * (e01 * e22 - e21 * e02)) * D;
+  Result.e32 := -(e00 * (e11 * e32 - e31 * e12) - e10 * (e01 * e32 - e31 * e02) + e30 * (e01 * e12 - e11 * e02)) * D;
+  Result.e33 :=  (e00 * (e11 * e22 - e21 * e12) - e10 * (e01 * e22 - e21 * e02) + e20 * (e01 * e12 - e11 * e02)) * D;
+end;
+
+function TMat4f.Transpose: TMat4f;
+begin
+  Result.e00 := e00; Result.e10 := e01; Result.e20 := e02; Result.e30 := e03;
+  Result.e01 := e10; Result.e11 := e11; Result.e21 := e12; Result.e31 := e13;
+  Result.e02 := e20; Result.e12 := e21; Result.e22 := e22; Result.e32 := e23;
+  Result.e03 := e30; Result.e13 := e31; Result.e23 := e32; Result.e33 := e33;
+end;
+
+function TMat4f.FromAxisAngle(Angle: Single; const Axis: TVec3f): TMat4f;
+var
+  s, c  : Single;
+  ic : Single;
+  xy, yz, zx, xs, ys, zs, icxy, icyz, iczx : Single;
+begin
+  SinCos(Angle, s, c);
+  ic := 1 - c;
+
+  with Result, Axis do
+  begin
+    xy := x * y;  yz := y * z;  zx := z * x;
+    xs := x * s;  ys := y * s;  zs := z * s;
+    icxy := ic * xy;  icyz := ic * yz;  iczx := ic * zx;
+    e00 := ic * x * x + c;  e01 := icxy - zs;       e02 := iczx + ys;       e03 := 0.0;
+    e10 := icxy + zs;       e11 := ic * y * y + c;  e12 := icyz - xs;       e13 := 0.0;
+    e20 := iczx - ys;       e21 := icyz + xs;       e22 := ic * z * z + c;  e23 := 0.0;
+    e30 := 0.0;             e31 := 0.0;             e32 := 0.0;             e33 := 1.0;
+  end;
+end;
+
+procedure TMat4f.Translate(const v: TVec3f);
+var
+  m : TMat4f;
+begin
+  m.Identity;
+  m.Pos := v;
+  Self := Self * m;
+end;
+
+procedure TMat4f.Rotate(Angle: Single; const Axis: TVec3f);
+var
+  m : TMat4f;
+begin
+  m := m.FromAxisAngle(Angle, Axis);
+  Self := Self * m;
+end;
+
+procedure TMat4f.Scale(const v: TVec3f);
+var
+  m : TMat4f;
+begin
+  m.Identity;
+  m.e00 := v.x;
+  m.e11 := v.y;
+  m.e22 := v.z;
+  Self := m * Self;
+end;
+
+procedure TMat4f.Ortho(Left, Right, Bottom, Top, ZNear, ZFar: Single);
+begin
+  e00 := 2 / (Right - Left);
+  e10 := 0;
+  e20 := 0;
+  e30 := 0;
+
+  e01 := 0;
+  e11 := 2 / (Top - Bottom);
+  e21 := 0;
+  e31 := 0;
+
+  e02 := 0;
+  e12 := 0;
+  e22 := -2 / (ZFar - ZNear);
+  e32 := 0;
+
+  e03 := -(Right + Left) / (Right - Left);
+  e13 := -(Top + Bottom) / (Top - Bottom);
+  e23 := -(ZFar + ZNear) / (ZFar - ZNear);
+  e33 := 1;
+end;
+
+procedure TMat4f.Frustum(Left, Right, Bottom, Top, ZNear, ZFar: Single);
+begin
+  e00 := 2 * ZNear / (Right - Left);
+  e10 := 0;
+  e20 := 0;
+  e30 := 0;
+
+  e01 := 0;
+  e11 := 2 * ZNear / (Top - Bottom);
+  e21 := 0;
+  e31 := 0;
+
+  e02 := (Right + Left) / (Right - Left);
+  e12 := (Top + Bottom) / (Top - Bottom);
+  e22 := -(ZFar + ZNear) / (ZFar - ZNear);
+  e32 := -1;
+
+  e03 := 0;
+  e13 := 0;
+  e23 := -2 * ZFar * ZNear / (ZFar - ZNear);
+  e33 := 0;
+end;
+
+procedure TMat4f.Perspective(FOV, Aspect, ZNear, ZFar: Single);
+var
+  x, y : Single;
+begin
+  FOV := Clamp(FOV, 0, 179.9);
+  y := ZNear * Tan(FOV * deg2rad * 0.5);
+  x := y * Aspect;
+  Frustum(-x, x, -y, y, ZNear, ZFar);
+end;
+{$ENDREGION}
+
 {$REGION 'Math'}
 function Vec2f(x, y: Single): TVec2f;
 begin
@@ -1287,7 +1575,7 @@ begin
     Result := y;
 end;
 
-function Clamp(x, min, max: LongInt): LongInt;
+function Clamp(x, Min, Max: LongInt): LongInt;
 begin
   if x < min then
     Result := min
@@ -1298,7 +1586,7 @@ begin
       Result := x;
 end;
 
-function Clamp(x, min, max: Single): Single;
+function Clamp(x, Min, Max: Single): Single;
 begin
   if x < min then
     Result := min
@@ -1377,6 +1665,11 @@ asm
   fsubr ONE
   fsqrt
   fpatan
+end;
+
+function Pow(x, y: Single): Single;
+begin
+  Result := exp(ln(x) * y);
 end;
 {$ENDREGION}
 
@@ -1511,15 +1804,16 @@ var
   i : LongInt;
 begin
   Idx := -1;
-// Resource in array?
   Result := False;
-  for i := 0 to Count - 1 do
-    if Items[i].Name = Name then
-    begin
-      Idx := i;
-      Inc(Items[Idx].Ref);
-      Exit;
-    end;
+// Resource in array?
+  if Name <> '' then
+    for i := 0 to Count - 1 do
+      if Items[i].Name = Name then
+      begin
+        Idx := i;
+        Inc(Items[Idx].Ref);
+        Exit;
+      end;
 // Get free slot
   Result := True;
   for i := 0 to Count - 1 do
@@ -1807,11 +2101,14 @@ begin
       end;
   // Keyboard
     WM_KEYDOWN, WM_KEYDOWN + 1, WM_SYSKEYDOWN, WM_SYSKEYDOWN + 1 :
-    begin
-      Input.SetState(Input.Convert(WParam), (Msg = WM_KEYDOWN) or (Msg = WM_SYSKEYDOWN));
-      if (Msg = WM_SYSKEYDOWN) and (WParam = 13) then // Alt + Enter
-        Screen.FullScreen := not Screen.FullScreen;
-    end;
+      begin
+        Input.SetState(Input.Convert(WParam), (Msg = WM_KEYDOWN) or (Msg = WM_SYSKEYDOWN));
+        if (Msg = WM_SYSKEYDOWN) and (WParam = 13) then // Alt + Enter
+          Screen.FullScreen := not Screen.FullScreen;
+      end;
+    WM_CHAR :
+      if (WParam > 31) then
+        Input.FText := Input.FText + Char(WParam);
   // Mouse
     WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(KM_1, Msg = WM_LBUTTONDOWN);
     WM_RBUTTONDOWN, WM_RBUTTONDOWN + 1 : Input.SetState(KM_2, Msg = WM_RBUTTONDOWN);
@@ -1821,7 +2118,7 @@ begin
         Inc(Input.Mouse.Delta.Wheel, SmallInt(wParam  shr 16) div 120);
         Input.SetState(KM_WHUP, SmallInt(wParam shr 16) > 0);
         Input.SetState(KM_WHDN, SmallInt(wParam shr 16) < 0);
-      end
+      end;
   else
     Result := DefWindowProcA(Hwnd, Msg, WParam, LParam);
   end;
@@ -2256,6 +2553,7 @@ var
 {$ENDIF}
 begin
   FillChar(FHit, SizeOf(FHit), False);
+  FText    := '';
   FLastKey := KK_NONE;
   Mouse.Delta.Wheel := 0;
   SetState(KM_WHUP, False);
@@ -2703,8 +3001,7 @@ procedure TRender.Set2D(Width, Height: LongInt);
 begin
   gl.MatrixMode(GL_PROJECTION);
   gl.LoadIdentity;
-  gl.Ortho(0, Width, 0, Height, -1, 1);
-//  gl.Ortho(0, Width, Height, 0, -1, 1);
+  gl.Ortho(-Width/2, Width/2, -Height/2, Height/2, -1, 1);
   gl.MatrixMode(GL_MODELVIEW);
   gl.LoadIdentity;
 end;
@@ -2747,6 +3044,25 @@ end;
 
 // Texture =====================================================================
 {$REGION 'TTexture'}
+procedure TTexture.Init(DWidth, DHeight: LongInt; DataRGBA: Pointer);
+begin
+  if Utils.ResManager.Add('', ResIdx) then
+  begin
+    with Utils.ResManager.Items[ResIdx] do
+    begin
+      Width   := DWidth;
+      Height  := DHeight;
+      FWidth  := DWidth;
+      FHeight := DHeight;
+      gl.GenTextures(1, @ID);
+      gl.BindTexture(GL_TEXTURE_2D, ID);
+    end;
+    gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, DataRGBA);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  end;
+end;
+
 procedure TTexture.Load(const FileName: string);
 const
   DDPF_ALPHAPIXELS = $01;
@@ -2786,7 +3102,6 @@ begin
         gl.GenTextures(1, @ID);
         gl.BindTexture(GL_TEXTURE_2D, ID);
       end;
-      gl.TexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, GL_FALSE);
     // Select OpenGL texture format
       f := GL_RGB8;
       c := GL_BGR;
@@ -2853,6 +3168,12 @@ procedure TTexture.Free;
 begin
   if Utils.ResManager.Delete(ResIdx) then
     gl.DeleteTextures(1, @Utils.ResManager.Items[ResIdx].ID);
+end;
+
+procedure TTexture.SetData(X, Y, DWidth, DHeight: LongInt; DataRGBA: Pointer);
+begin
+  Enable;
+  gl.TexSubImage2D(GL_TEXTURE_2D, 0, X, Y, DWidth, DHeight, GL_RGBA, GL_UNSIGNED_BYTE, DataRGBA);
 end;
 
 procedure TTexture.Enable(Channel: LongInt);
@@ -3057,7 +3378,7 @@ begin
 end;
 {$ENDREGION}
 
-// GL ==========================================================================
+// OpenGL ======================================================================
 {$REGION 'TGL'}
 procedure TGL.Init;
 type
@@ -3083,6 +3404,7 @@ const
     'glBindTexture',
     'glTexParameteri',
     'glTexImage2D',
+    'glTexSubImage2D',
     'glCompressedTexImage2DARB',
     'glActiveTextureARB',
     'glClientActiveTextureARB',
@@ -3102,8 +3424,11 @@ const
     'glBegin',
     'glEnd',
     'glColor4ub',
+    'glVertex2f',
     'glVertex2fv',
+    'glVertex3f',
     'glVertex3fv',
+    'glTexCoord2f',
     'glTexCoord2fv',
     'glEnableClientState',
     'glDisableClientState',
@@ -3150,6 +3475,25 @@ end;
 procedure TGL.Free;
 begin
   FreeLibrary(Lib);
+end;
+{$ENDREGION}
+
+// Common ======================================================================
+{$REGION 'Common'}
+function Rect(Left, Top, Right, Bottom: LongInt): TRect;
+begin
+  Result.Left   := Left;
+  Result.Top    := Top;
+  Result.Right  := Right;
+  Result.Bottom := Bottom;
+end;
+
+function RGBA(R, G, B, A: Byte): TRGBA;
+begin
+  Result.R := R;
+  Result.G := G;
+  Result.B := B;
+  Result.A := A;
 end;
 {$ENDREGION}
 
