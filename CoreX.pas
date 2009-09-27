@@ -14,8 +14,6 @@ unit CoreX;
 {====================================================================}
 interface
 
-{$DEFINE DEBUG}
-
 {$IFDEF WIN32}
   {$DEFINE WINDOWS}
 {$ENDIF}
@@ -30,12 +28,6 @@ type
 
 // Math ------------------------------------------------------------------------
 {$REGION 'Math'}
-const
-  ONE     : Single = 1.0;
-  EPS     = 1.E-05;
-  deg2rad = pi / 180;
-  rad2deg = 180 / pi;
-
 type
   TVec2f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y : Single;
@@ -122,6 +114,7 @@ type
   operator - (const a, b: TVec2f): TVec2f;
   operator * (const a, b: TVec2f): TVec2f;
   operator * (const v: TVec2f; x: Single): TVec2f;
+  operator / (const v: TVec2f; x: Single): TVec2f;
 // TVec3f
   operator = (const a, b: TVec3f): Boolean;
   operator + (const a, b: TVec3f): TVec3f;
@@ -135,6 +128,12 @@ type
   operator * (const m: TMat4f; x: Single): TMat4f;
 {$ENDIF}
 
+const
+  ONE     : Single = 1.0;
+  EPS     = 1.E-05;
+  deg2rad = pi / 180;
+  rad2deg = 180 / pi;
+
   function Vec2f(x, y: Single): TVec2f; inline;
   function Vec3f(x, y, z: Single): TVec3f; inline;
   function Vec4f(x, y, z, w: Single): TVec4f; inline;
@@ -144,6 +143,7 @@ type
   function Max(x, y: Single): Single; overload; inline;
   function Clamp(x, Min, Max: LongInt): LongInt; overload; inline;
   function Clamp(x, Min, Max: Single): Single; overload; inline;
+  function Lerp(x, y, t: Single): Single; inline;
   function Sign(x: Single): LongInt;
   function Ceil(const x: Extended): LongInt;
   function Floor(const x: Extended): LongInt;
@@ -160,10 +160,6 @@ type
 type
   TCharSet = set of AnsiChar;
 
-  TRGBA = record
-    R, G, B, A : Byte;
-  end;
-
   PRect = ^TRect;
   TRect = record
     Left, Top, Right, Bottom : LongInt;
@@ -172,54 +168,34 @@ type
   PDataArray = ^TDataArray;
   TDataArray = array [0..1] of SmallInt;
 
-  TResType = (rtTexture, rtSound);
+  PByteArray = ^TByteArray;
+  TByteArray = array [0..1] of Byte;
 
-  TResData = record
-    Ref  : LongInt;
-    Name : string;
-    case TResType of
-      rtTexture : (
-        ID     : LongWord;
-        Width  : LongInt;
-        Height : LongInt;
-      );
-      rtSound : (
-        Length : LongInt;
-        Data   : PDataArray;
-      );
+  TRGBA = record
+    R, G, B, A : Byte;
   end;
 
-  TResManager = object
-    Items : array of TResData;
-    Count : LongInt;
-    procedure Init;
-    function Add(const Name: string; out Idx: LongInt): Boolean;
-    function Delete(Idx: LongInt): Boolean;
-  end;
 
-  TUtils = object
-  private
-    ResManager : TResManager;
-    procedure Init;
-    procedure Free;
-  public
-    function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
-    function Conv(const Str: string; Def: Single = 0): Single; overload;
-    function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
-    function Conv(Value: LongInt): string; overload;
-    function Conv(Value: Single; Digits: LongInt = 6): string; overload;
-    function Conv(Value: Boolean): string; overload;
-    function LowerCase(const Str: string): string;
-    function Trim(const Str: string): string;
-    function DeleteChars(const Str: string; Chars: TCharSet): string;
-    function ExtractFileDir(const Path: string): string;
-  end;
+  function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
+  function Conv(const Str: string; Def: Single = 0): Single; overload;
+  function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
+  function Conv(Value: LongInt): string; overload;
+  function Conv(Value: Single; Digits: LongInt = 6): string; overload;
+  function Conv(Value: Boolean): string; overload;
+  function LowerCase(const Str: string): string;
+  function Trim(const Str: string): string;
+  function DeleteChars(const Str: string; Chars: TCharSet): string;
+  function ExtractFileDir(const Path: string): string;
+  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
+  function RGBA(R, G, B, A: Byte): TRGBA; inline;
+
 {
   TThread = object
     procedure Init;
     procedure Free;
   end;
 }
+type
   TStream = object
   private
     SType  : (stFile, stMemory);
@@ -273,15 +249,14 @@ type
   TScreen = object
   private
     FQuit   : Boolean;
-    Handle  : LongWord;
     FWidth  : LongInt;
     FHeight : LongInt;
+    FCustom : Boolean;
     FFullScreen   : Boolean;
     FAntiAliasing : TAAType;
     FVSync      : Boolean;
     FActive     : Boolean;
     FCaption    : string;
-    FFPS        : LongInt;
     FFPSTime    : LongInt;
     FFPSIdx     : LongInt;
     procedure Init;
@@ -292,6 +267,7 @@ type
     procedure SetVSync(Value: Boolean);
     procedure SetCaption(const Value: string);
   public
+    Handle : LongWord;
     procedure Resize(W, H: LongInt);
     procedure Swap;
     property Width: LongInt read FWidth;
@@ -301,7 +277,6 @@ type
     property VSync: Boolean read FVSync write SetVSync;
     property Active: Boolean read FActive;
     property Caption: string read FCaption write SetCaption;
-    property FPS: LongInt read FFPS;
   end;
 {$ENDREGION}
 
@@ -317,7 +292,7 @@ type
     KK_ESC, KK_ENTER, KK_BACK, KK_TAB, KK_SHIFT, KK_CTRL, KK_ALT, KK_SPACE,
     KK_PGUP, KK_PGDN, KK_END, KK_HOME, KK_LEFT, KK_UP, KK_RIGHT, KK_DOWN, KK_INS, KK_DEL,
   // Mouse
-    KM_1, KM_2, KM_3, KM_WHUP, KM_WHDN,
+    KM_L, KM_R, KM_M, KM_WHUP, KM_WHDN,
   // Joystick
     KJ_1, KJ_2, KJ_3, KJ_4, KJ_5, KJ_6, KJ_7, KJ_8, KJ_9, KJ_10, KJ_11, KJ_12, KJ_13, KJ_14, KJ_15, KJ_16
   );
@@ -357,7 +332,6 @@ type
     procedure Init;
     procedure Free;
     procedure Reset;
-    procedure Update;
     function Convert(KeyCode: Word): TInputKey;
     function GetDown(InputKey: TInputKey): Boolean;
     function GetHit(InputKey: TInputKey): Boolean;
@@ -366,6 +340,7 @@ type
   public
     Mouse : TMouse;
     Joy   : TJoy;
+    procedure Update;
     property LastKey: TInputKey read FLastKey;
     property Down[InputKey: TInputKey]: Boolean read GetDown;
     property Hit[InputKey: TInputKey]: Boolean read GetHit;
@@ -427,121 +402,6 @@ type
   end;
 {$ENDREGION}
 
-// Render ----------------------------------------------------------------------
-{$REGION 'Render'}
-  TBlendType = (btNone, btNormal, btAdd, btMult);
-
-  TRender = object
-  private
-    FDeltaTime : Single;
-    OldTime    : LongInt;
-    procedure Init;
-    procedure Free;
-    function GetTime: LongInt;
-    procedure SetBlend(Value: TBlendType);
-    procedure SetDepthTest(Value: Boolean);
-    procedure SetDepthWrite(Value: Boolean);
-  public
-    procedure Clear(ClearColor, ClearDepth: Boolean);
-    procedure Color(R, G, B, A: Byte);
-    procedure Set2D(Width, Height: LongInt);
-    procedure Set3D(FOV: Single; zNear: Single = 0.1; zFar: Single = 1000);
-    procedure Quad(x, y, w, h, s, t, sw, th: Single);
-    property Time: LongInt read GetTime;
-    property DeltaTime: Single read FDeltaTime;
-    property Blend: TBlendType write SetBlend;
-    property DepthTest: Boolean write SetDepthTest;
-    property DepthWrite: Boolean write SetDepthWrite;
-  end;
-{$ENDREGION}
-
-// Texture ---------------------------------------------------------------------
-{$REGION 'Texture'}
-  TTexture = object
-  private
-    ResIdx  : LongInt;
-    FWidth  : LongInt;
-    FHeight : LongInt;
-  public
-    procedure Init(DWidth, DHeight: LongInt; DataRGBA: Pointer);
-    procedure Load(const FileName: string);
-    procedure Free;
-    procedure SetData(X, Y, DWidth, DHeight: LongInt; DataRGBA: Pointer);
-    procedure Enable(Channel: LongInt = 0);
-    property Width: LongInt read FWidth;
-    property Height: LongInt read FHeight;
-  end;
-{$ENDREGION}
-
-// Sprite ----------------------------------------------------------------------
-{$REGION 'Sprite'}
-  TSpriteAnim = object
-  private
-    FName    : string;
-    FFrames  : LongInt;
-    FX, FY   : LongInt;
-    FWidth   : LongInt;
-    FHeight  : LongInt;
-    FCols    : LongInt;
-    FCX, FCY : LongInt;
-    FFPS     : LongInt;
-  public
-    property Name: string read FName;
-    property Frames: LongInt read FFrames;
-    property X: LongInt read FX;
-    property Y: LongInt read FY;
-    property Width: LongInt read FWidth;
-    property Height: LongInt read FHeight;
-    property Cols: LongInt read FCols;
-    property CenterX: LongInt read FCX;
-    property CenterY: LongInt read FCY;
-    property FPS: LongInt read FFPS;
-  end;
-
-  TSpriteAnimList = object
-  private
-    FCount : LongInt;
-    FItems : array of TSpriteAnim;
-    function GetItem(Idx: LongInt): TSpriteAnim;
-  public
-    procedure Add(const Name: string; Frames, X, Y, W, H, Cols, CX, CY, FPS: LongInt);
-    function IndexOf(const Name: string): LongInt;
-    property Count: LongInt read FCount;
-    property Items[Idx: LongInt]: TSpriteAnim read GetItem; default;
-  end;
-
-  TSprite = object
-  private
-    FPlaying  : Boolean;
-    FLoop     : Boolean;
-    FAnim     : TSpriteAnimList;
-    Texture   : TTexture;
-    Blend     : TBlendType;
-    CurIndex  : LongInt;
-    StartTime : LongInt;
-    FVertex   : array of TVec2f;
-    FCols, FRows : LongInt;
-    function GetPlaying: Boolean;
-    function GetVertex(x, y: LongInt): TVec2f;
-    procedure SetVertex(x, y: LongInt; const v: TVec2f);
-  public
-    Pos   : TVec2f;
-    Scale : TVec2f;
-    Angle : Single;
-    procedure Load(const FileName: string);
-    procedure Grid(GCols, GRows: LongInt);
-    procedure Free;
-    procedure Play(const AnimName: string; Loop: Boolean);
-    procedure Stop;
-    procedure Draw;
-    property Playing: Boolean read GetPlaying;
-    property Anim: TSpriteAnimList read FAnim;
-    property Cols: LongInt read FCols;
-    property Rows: LongInt read FRows;
-    property Vertex[x, y: LongInt]: TVec2f read GetVertex write SetVertex;
-  end;
-{$ENDREGION}
-
 // OpenGL ----------------------------------------------------------------------
 {$REGION 'OpenGL'}
 type
@@ -567,11 +427,15 @@ type
   // Matrix Mode
     GL_MODELVIEW = $1700, GL_PROJECTION, GL_TEXTURE,
   // Pixel Format
-    GL_RGB = $1907, GL_RGBA, GL_RGB8 = $8051, GL_RGBA8 = $8058, GL_BGR = $80E0, GL_BGRA,
+    GL_RGB = $1907, GL_RGBA, GL_RGB8 = $8051, GL_RGBA8 = $8058, GL_BGR = $80E0, GL_BGRA, GL_DEPTH_COMPONENT = $1902,
   // PolygonMode
     GL_POINT = $1B00, GL_LINE, GL_FILL,
   // List mode
     GL_COMPILE = $1300, GL_COMPILE_AND_EXECUTE,
+  // Lighting
+    GL_LIGHTING = $0B50, GL_LIGHT0 = $4000, GL_AMBIENT = $1200, GL_DIFFUSE, GL_SPECULAR, GL_POSITION, GL_SPOT_DIRECTION, GL_SPOT_EXPONENT, GL_SPOT_CUTOFF, GL_CONSTANT_ATTENUATION, GL_LINEAR_ATTENUATION, GL_QUADRATIC_ATTENUATION,
+  // Material
+    GL_COLOR_MATERIAL = $0B57,
   // StencilOp
     GL_KEEP = $1E00, GL_REPLACE, GL_INCR, GL_DECR,
   // GetString Parameter
@@ -630,9 +494,11 @@ type
     StencilFunc    : procedure (func: TGLConst; ref: LongInt; mask: LongWord); stdcall;
     DepthFunc      : procedure (func: TGLConst); stdcall;
     StencilOp      : procedure (fail, zfail, zpass: TGLConst); stdcall;
+    Lightfv        : procedure (light, pname: TGLConst; params: Pointer); stdcall;
     Viewport       : procedure (x, y, width, height: LongInt); stdcall;
     Beginp         : procedure (mode: TGLConst); stdcall;
     Endp           : procedure;
+    LineWidth      : procedure (width: Single); stdcall;
     Color4ub       : procedure (r, g, b, a: Byte); stdcall;
     Vertex2f       : procedure (x, y: Single); stdcall;
     Vertex2fv      : procedure (xy: Pointer); stdcall;
@@ -649,35 +515,189 @@ type
     TexCoordPointer : procedure (size: LongInt; _type: TGLConst; stride: LongInt; const ptr: Pointer); stdcall;
     NormalPointer   : procedure (type_: TGLConst; stride: LongWord; const P: Pointer); stdcall;
     MatrixMode      : procedure (mode: TGLConst); stdcall;
-    LoadIdentity    : procedure; stdcall;
-    LoadMatrixf     : procedure (m: Pointer); stdcall;
-    MultMatrixf     : procedure (m: Pointer); stdcall;
-    PushMatrix      : procedure; stdcall;
-    PopMatrix       : procedure; stdcall;
+    LoadIdentity    : procedure;
+    LoadMatrixf     : procedure (const m: TMat4f); stdcall;
+    MultMatrixf     : procedure (const m: TMat4f); stdcall;
+    PushMatrix      : procedure;
+    PopMatrix       : procedure;
     Scalef          : procedure (x, y, z: Single); stdcall;
     Translatef      : procedure (x, y, z: Single); stdcall;
     Rotatef         : procedure (Angle, x, y, z: Single); stdcall;
     Ortho           : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     Frustum         : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
+    ReadPixels      : procedure (x, y, width, height: LongInt; format, _type: TGLConst; pixels: Pointer); stdcall;
+    GenBuffers      : procedure (n: LongInt; buffers: Pointer); stdcall;
+    DeleteBuffers   : procedure (n: LongInt; const buffers: Pointer); stdcall;
+    BindBuffer      : procedure (target: TGLConst; buffer: LongWord); stdcall;
+    BufferData      : procedure (target: TGLConst; size: LongInt; const data: Pointer; usage: TGLConst); stdcall;
+    BufferSubData   : procedure (target: TGLConst; offset, size: LongInt; const data: Pointer); stdcall;
+    MapBuffer       : function  (target, access: TGLConst): Pointer; stdcall;
+    UnmapBuffer     : function  (target: TGLConst): Boolean; stdcall;
   end;
 {$ENDREGION}
 
-// Common ----------------------------------------------------------------------
-{$REGION 'Common'}
-  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
-  function RGBA(R, G, B, A: Byte): TRGBA; inline;
+// Render ----------------------------------------------------------------------
+{$REGION 'Render'}
+  TBlendType = (btNone, btNormal, btAdd, btMult);
+
+  TRenderSupport = (rsMultiTex, rsVertexBuf, rsShader);
+  TRenderSupportFlag = set of TRenderSupport;
+
+  TRender = object
+  private
+    FDeltaTime : Single;
+    OldTime    : LongInt;
+    FFPS       : LongInt;
+    SBuffer    : array [TRenderSupport] of Boolean;
+    procedure Init;
+    procedure Free;
+    function GetTime: LongInt;
+    procedure SetBlend(Value: TBlendType);
+    procedure SetDepthTest(Value: Boolean);
+    procedure SetDepthWrite(Value: Boolean);
+    procedure SetCullFace(Value: Boolean);
+  public
+    function Support(SupportFlags: TRenderSupportFlag): Boolean;
+    procedure Update;
+    procedure Clear(ClearColor, ClearDepth: Boolean);
+    procedure Color(R, G, B, A: Byte);
+    procedure Set2D(Width, Height: LongInt);
+    procedure Set3D(FOV, Aspect: Single; zNear: Single = 0.1; zFar: Single = 1000);
+    procedure Quad(x, y, w, h, s, t, sw, th: Single);
+    property FPS: LongInt read FFPS;
+    property Time: LongInt read GetTime;
+    property DeltaTime: Single read FDeltaTime;
+    property Blend: TBlendType write SetBlend;
+    property DepthTest: Boolean write SetDepthTest;
+    property DepthWrite: Boolean write SetDepthWrite;
+    property CullFace: Boolean write SetCullFace;
+  end;
+{$ENDREGION}
+
+// Texture ---------------------------------------------------------------------
+{$REGION 'Texture'}
+  TTexture = object
+  private
+    ResIdx  : LongInt;
+    FWidth  : LongInt;
+    FHeight : LongInt;
+  public
+    procedure Init(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA);
+    procedure Load(const FileName: string);
+    procedure Free;
+    procedure SetData(X, Y, DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA);
+    procedure Enable(Channel: LongInt = 0);
+    property Width: LongInt read FWidth;
+    property Height: LongInt read FHeight;
+  end;
+{$ENDREGION}
+
+// Sprite ----------------------------------------------------------------------
+{$REGION 'Sprite'}
+  TSpriteAnim = object
+  private
+    FName    : string;
+    FFrames  : LongInt;
+    FX, FY   : LongInt;
+    FWidth   : LongInt;
+    FHeight  : LongInt;
+    FCols    : LongInt;
+    FCX, FCY : LongInt;
+    FFPS     : LongInt;
+  public
+    property Name: string read FName;
+    property Frames: LongInt read FFrames;
+    property X: LongInt read FX;
+    property Y: LongInt read FY;
+    property Width: LongInt read FWidth;
+    property Height: LongInt read FHeight;
+    property Cols: LongInt read FCols;
+    property CenterX: LongInt read FCX;
+    property CenterY: LongInt read FCY;
+    property FPS: LongInt read FFPS;
+  end;
+
+  TSpriteAnimList = object
+  private
+    FCount : LongInt;
+    FItems : array of TSpriteAnim;
+    function GetItem(Idx: LongInt): TSpriteAnim;
+  public
+    procedure Add(const Name: string; Frames, X, Y, W, H, Cols, CX, CY, FPS: LongInt);
+    function IndexOf(const Name: string): LongInt;
+    property Count: LongInt read FCount;
+    property Items[Idx: LongInt]: TSpriteAnim read GetItem; default;
+  end;
+
+  TSprite = object
+  private
+    FPlaying  : Boolean;
+    FLoop     : Boolean;
+    FAnim     : TSpriteAnimList;
+    Texture   : TTexture;
+    Blend     : TBlendType;
+    CurIndex  : LongInt;
+    StartTime : LongInt;
+    FVertex   : array of TVec2f;
+    FCols, FRows : LongInt;
+    function GetWidth: LongInt;
+    function GetHeight: LongInt;
+    function GetPlaying: Boolean;
+    function GetVertex(x, y: LongInt): TVec2f;
+    procedure SetVertex(x, y: LongInt; const v: TVec2f);
+  public
+    Pos   : TVec2f;
+    Scale : TVec2f;
+    Angle : Single;
+    procedure Load(const FileName: string);
+    procedure Grid(GCols, GRows: LongInt);
+    procedure Free;
+    procedure Play(const AnimName: string; Loop: Boolean);
+    procedure Stop;
+    procedure Draw;
+    property Width: LongInt read GetWidth;
+    property Height: LongInt read GetHeight;
+    property Playing: Boolean read GetPlaying;
+    property Anim: TSpriteAnimList read FAnim;
+    property Cols: LongInt read FCols;
+    property Rows: LongInt read FRows;
+    property Vertex[x, y: LongInt]: TVec2f read GetVertex write SetVertex;
+  end;
+{$ENDREGION}
+
+// Mesh ------------------------------------------------------------------------
+{$REGION 'Mesh'}
+  TDataType = (dtIndex, dtVertex);
+
+  TMeshBuffer = object
+    ID    : LongWord;
+    DType : TGLConst;
+    procedure Init(DataType: TDataType; Size: LongInt; Data: Pointer);
+    procedure Free;
+    procedure SetData(Offset, Size: LongInt; Data: Pointer);
+    procedure Enable;
+    procedure Disable;
+  end;
+
+  TMesh = object
+    Buffer : array [TDataType] of TMeshBuffer;
+    procedure Draw;
+  end;
 {$ENDREGION}
 
 var
   gl      : TGL;
-  Utils   : TUtils;
   Screen  : TScreen;
   Input   : TInput;
   Sound   : TSound;
   Render  : TRender;
 
+
+  procedure Init;
+  procedure Free;
   procedure Start(PInit, PFree, PRender: TCoreProc);
   procedure Quit;
+  procedure Assert(Flag: Boolean; const Error: AnsiString = '');
 
 implementation
 
@@ -800,6 +820,7 @@ const
   function LoadLibraryA(Name: PAnsiChar): LongWord; stdcall; external kernel32;
   function FreeLibrary(LibHandle: LongWord): Boolean; stdcall; external kernel32;
   function GetProcAddress(LibHandle: LongWord; ProcName: PAnsiChar): Pointer; stdcall; external kernel32;
+  function MessageBoxA(hWnd: LongWord; lpText, lpCaption: PAnsiChar; uType: LongWord): LongInt; stdcall; external user32;
   function CreateWindowExA(dwExStyle: LongWord; lpClassName: PAnsiChar; lpWindowName: PAnsiChar; dwStyle: LongWord; X, Y, nWidth, nHeight: LongInt; hWndParent, hMenum, hInstance: LongWord; lpParam: Pointer): LongWord; stdcall; external user32;
   function DestroyWindow(hWnd: LongWord): Boolean; stdcall; external user32;
   function ShowWindow(hWnd: LongWord; nCmdShow: LongInt): Boolean; stdcall; external user32;
@@ -1597,6 +1618,11 @@ begin
       Result := x;
 end;
 
+function Lerp(x, y, t: Single): Single;
+begin
+  Result := x + (y - x) * t;
+end;
+
 function Sign(x: Single): LongInt;
 begin
   if x > 0 then
@@ -1674,129 +1700,45 @@ end;
 {$ENDREGION}
 
 // Utils =======================================================================
-{$REGION 'TUtils'}
-procedure TUtils.Init;
-begin
-  ResManager.Init;
-end;
+{$REGION 'TResManager'}
+type
+  TResType = (rtTexture, rtSound);
 
-procedure TUtils.Free;
-begin
-//  ResManager.Free;
-end;
+  TResData = record
+    Ref  : LongInt;
+    Name : string;
+    case TResType of
+      rtTexture : (
+        ID     : LongWord;
+        Width  : LongInt;
+        Height : LongInt;
+      );
+      rtSound : (
+        Length : LongInt;
+        Data   : PDataArray;
+      );
+  end;
 
-function TUtils.Conv(const Str: string; Def: LongInt): LongInt;
+  TResManager = object
+    Items : array of TResData;
+    Count : LongInt;
+    Active : array [0..16] of LongInt;
+    procedure Init;
+    function Add(const Name: string; out Idx: LongInt): Boolean;
+    function Delete(Idx: LongInt): Boolean;
+  end;
+
 var
-  Code : LongInt;
-begin
-  Val(Str, Result, Code);
-  if Code <> 0 then
-    Result := Def;
-end;
+  ResManager : TResManager;
 
-function TUtils.Conv(const Str: string; Def: Single): Single;
-var
-  Code : LongInt;
-begin
-  Val(Str, Result, Code);
-  if Code <> 0 then
-    Result := Def;
-end;
-
-function TUtils.Conv(const Str: string; Def: Boolean = False): Boolean;
-var
-  LStr : string;
-begin
-  LStr := LowerCase(Str);
-  if LStr = 'true' then
-    Result := True
-  else
-    if LStr = 'false' then
-      Result := False
-    else
-      Result := Def;
-end;
-
-function TUtils.Conv(Value: LongInt): string;
-var
-  Res : string[32];
-begin
-  Str(Value, Res);
-  Result := string(Res);
-end;
-
-function TUtils.Conv(Value: Single; Digits: LongInt = 6): string;
-var
-  Res : string[32];
-begin
-  Str(Value:0:Digits, Res);
-  Result := string(Res);
-end;
-
-function TUtils.Conv(Value: Boolean): string;
-begin
-  if Value then
-    Result := 'true'
-  else
-    Result := 'false';
-end;
-
-function TUtils.LowerCase(const Str: string): string;
-begin
-  Result := Str; // FIX!
-end;
-
-function TUtils.Trim(const Str: string): string;
-var
-  i, j: LongInt;
-begin
-  j := Length(Str);
-  i := 1;
-  while (i <= j) and (Str[i] <= ' ') do
-    Inc(i);
-  if i <= j then
-  begin
-    while Str[j] <= ' ' do
-      Dec(j);
-    Result := Copy(Str, i, j - i + 1);
-  end else
-    Result := '';
-end;
-
-function TUtils.DeleteChars(const Str: string; Chars: TCharSet): string;
-var
-  i, j : LongInt;
-begin
-  j := 0;
-  SetLength(Result, Length(Str));
-  for i := 1 to Length(Str) do
-    if not (AnsiChar(Str[i]) in Chars) then
-    begin
-      Inc(j);
-      Result[j] := Str[i];
-    end;
-  SetLength(Result, j);
-end;
-
-function TUtils.ExtractFileDir(const Path: string): string;
+procedure TResManager.Init;
 var
   i : Integer;
 begin
-  for i := Length(Path) downto 1 do
-    if (Path[i] = '\') or (Path[i] = '/') then
-    begin
-      Result := Copy(Path, 1, i);
-      Exit;
-    end;
-  Result := '';
-end;
-{$ENDREGION}
-
-{$REGION 'TResManager'}
-procedure TResManager.Init;
-begin
   Items := nil;
   Count := 0;
+  for i := 0 to Length(Active) - 1 do
+    Active[i] := -1;
 end;
 
 function TResManager.Add(const Name: string; out Idx: LongInt): Boolean;
@@ -1834,11 +1776,18 @@ begin
 end;
 
 function TResManager.Delete(Idx: LongInt): Boolean;
+var
+ i : Integer;
 begin
   Dec(Items[Idx].Ref);
   Result := Items[Idx].Ref <= 0;
   if Result then
+  begin
     Items[Idx].Name := '';
+    for i := 0 to Length(Active) - 1 do
+      if Active[i] = Idx then
+        Active[i] := -1;
+  end;
 end;
 {$ENDREGION}
 
@@ -1957,13 +1906,13 @@ begin
           SetLength(Data[CatId].Params, Length(Data[CatId].Params) + 1);
           with Data[CatId], Params[Length(Params) - 1] do
           begin
-            Name  := Utils.Trim(Copy(Line, 1, Pos('=', Line) - 1));
-            Value := Utils.Trim(Copy(Line, Pos('=', Line) + 1, Length(Line)));
+            Name  := Trim(Copy(Line, 1, Pos('=', Line) - 1));
+            Value := Trim(Copy(Line, Pos('=', Line) + 1, Length(Line)));
           end;
         end;
       end else
       begin
-        Category := Utils.Trim(Utils.DeleteChars(Line, ['[', ']']));
+        Category := Trim(DeleteChars(Line, ['[', ']']));
         CatId := Length(Data);
         SetLength(Data, CatId + 1);
         Data[CatId].Category := Category;
@@ -2021,17 +1970,17 @@ end;
 
 procedure TConfigFile.Write(const Category, Name: string; Value: LongInt);
 begin
-  Write(Category, Name, Utils.Conv(Value));
+  Write(Category, Name, Conv(Value));
 end;
 
 procedure TConfigFile.Write(const Category, Name: string; Value: Single);
 begin
-  Write(Category, Name, Utils.Conv(Value, 4));
+  Write(Category, Name, Conv(Value, 4));
 end;
 
 procedure TConfigFile.Write(const Category, Name: string; Value: Boolean);
 begin
-  Write(Category, Name, Utils.Conv(Value));
+  Write(Category, Name, Conv(Value));
 end;
 
 function TConfigFile.Read(const Category, Name: string; const Default: string = ''): string;
@@ -2051,17 +2000,17 @@ end;
 
 function TConfigFile.Read(const Category, Name: string; Default: LongInt): LongInt;
 begin
-  Result := Utils.Conv(Read(Category, Name, ''), Default);
+  Result := Conv(Read(Category, Name, ''), Default);
 end;
 
 function TConfigFile.Read(const Category, Name: string; Default: Single): Single;
 begin
-  Result := Utils.Conv(Read(Category, Name, ''), Default);
+  Result := Conv(Read(Category, Name, ''), Default);
 end;
 
 function TConfigFile.Read(const Category, Name: string; Default: Boolean): Boolean;
 begin
-  Result := Utils.Conv(Read(Category, Name, ''), Default);
+  Result := Conv(Read(Category, Name, ''), Default);
 end;
 
 function TConfigFile.CategoryName(Idx: LongInt): string;
@@ -2070,6 +2019,130 @@ begin
     Result := Data[Idx].Category
   else
     Result := '';
+end;
+{$ENDREGION}
+
+{$REGION 'Utils'}
+function Conv(const Str: string; Def: LongInt): LongInt;
+var
+  Code : LongInt;
+begin
+  Val(Str, Result, Code);
+  if Code <> 0 then
+    Result := Def;
+end;
+
+function Conv(const Str: string; Def: Single): Single;
+var
+  Code : LongInt;
+begin
+  Val(Str, Result, Code);
+  if Code <> 0 then
+    Result := Def;
+end;
+
+function Conv(const Str: string; Def: Boolean = False): Boolean;
+var
+  LStr : string;
+begin
+  LStr := LowerCase(Str);
+  if LStr = 'true' then
+    Result := True
+  else
+    if LStr = 'false' then
+      Result := False
+    else
+      Result := Def;
+end;
+
+function Conv(Value: LongInt): string;
+var
+  Res : string[32];
+begin
+  Str(Value, Res);
+  Result := string(Res);
+end;
+
+function Conv(Value: Single; Digits: LongInt = 6): string;
+var
+  Res : string[32];
+begin
+  Str(Value:0:Digits, Res);
+  Result := string(Res);
+end;
+
+function Conv(Value: Boolean): string;
+begin
+  if Value then
+    Result := 'true'
+  else
+    Result := 'false';
+end;
+
+function LowerCase(const Str: string): string;
+begin
+  Result := Str; // FIX!
+end;
+
+function Trim(const Str: string): string;
+var
+  i, j: LongInt;
+begin
+  j := Length(Str);
+  i := 1;
+  while (i <= j) and (Str[i] <= ' ') do
+    Inc(i);
+  if i <= j then
+  begin
+    while Str[j] <= ' ' do
+      Dec(j);
+    Result := Copy(Str, i, j - i + 1);
+  end else
+    Result := '';
+end;
+
+function DeleteChars(const Str: string; Chars: TCharSet): string;
+var
+  i, j : LongInt;
+begin
+  j := 0;
+  SetLength(Result, Length(Str));
+  for i := 1 to Length(Str) do
+    if not (AnsiChar(Str[i]) in Chars) then
+    begin
+      Inc(j);
+      Result[j] := Str[i];
+    end;
+  SetLength(Result, j);
+end;
+
+function ExtractFileDir(const Path: string): string;
+var
+  i : Integer;
+begin
+  for i := Length(Path) downto 1 do
+    if (Path[i] = '\') or (Path[i] = '/') then
+    begin
+      Result := Copy(Path, 1, i);
+      Exit;
+    end;
+  Result := '';
+end;
+
+function Rect(Left, Top, Right, Bottom: LongInt): TRect;
+begin
+  Result.Left   := Left;
+  Result.Top    := Top;
+  Result.Right  := Right;
+  Result.Bottom := Bottom;
+end;
+
+function RGBA(R, G, B, A: Byte): TRGBA;
+begin
+  Result.R := R;
+  Result.G := G;
+  Result.B := B;
+  Result.A := A;
 end;
 {$ENDREGION}
 
@@ -2110,17 +2183,17 @@ begin
       if (WParam > 31) then
         Input.FText := Input.FText + Char(WParam);
   // Mouse
-    WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(KM_1, Msg = WM_LBUTTONDOWN);
-    WM_RBUTTONDOWN, WM_RBUTTONDOWN + 1 : Input.SetState(KM_2, Msg = WM_RBUTTONDOWN);
-    WM_MBUTTONDOWN, WM_MBUTTONDOWN + 1 : Input.SetState(KM_3, Msg = WM_MBUTTONDOWN);
+    WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(KM_L, Msg = WM_LBUTTONDOWN);
+    WM_RBUTTONDOWN, WM_RBUTTONDOWN + 1 : Input.SetState(KM_R, Msg = WM_RBUTTONDOWN);
+    WM_MBUTTONDOWN, WM_MBUTTONDOWN + 1 : Input.SetState(KM_M, Msg = WM_MBUTTONDOWN);
     WM_MOUSEWHEEL :
       begin
         Inc(Input.Mouse.Delta.Wheel, SmallInt(wParam  shr 16) div 120);
         Input.SetState(KM_WHUP, SmallInt(wParam shr 16) > 0);
         Input.SetState(KM_WHDN, SmallInt(wParam shr 16) < 0);
       end;
-  else
-    Result := DefWindowProcA(Hwnd, Msg, WParam, LParam);
+    else
+      Result := DefWindowProcA(Hwnd, Msg, WParam, LParam);
   end;
 end;
 {$ENDIF}
@@ -2160,9 +2233,9 @@ begin
     ButtonPress, ButtonPress + 1 :
       begin
         case Event.xkey.KeyCode of
-          1 : Key := KM_1;
-          2 : Key := KM_3;
-          3 : Key := KM_2;
+          1 : Key := KM_L;
+          2 : Key := KM_R;
+          3 : Key := KM_M;
           4 : Key := KM_WHUP;
           5 : Key := KM_WHDN;
         else
@@ -2224,11 +2297,16 @@ begin
     ReleaseDC(Handle, DC);
     DestroyWindow(Handle);
   end;
+  FCustom := Handle <> 0;
 // Window
-  Handle := CreateWindowExA(0, 'STATIC', PAnsiChar(AnsiString(FCaption)), 0,
-                            0, 0, 0, 0, 0, 0, HInstance, nil);
-  SetWindowLongA(Handle, GWL_WNDPROC, LongWord(@WndProc));
-  SendMessageA(Handle, WM_SETICON, 1, LoadIconA(HInstance, 'MAINICON'));
+  if not FCustom then
+  begin
+    Handle := CreateWindowExA(0, 'STATIC', PAnsiChar(AnsiString(FCaption)), 0,
+                              0, 0, 0, 0, 0, 0, HInstance, nil);
+    SendMessageA(Handle, WM_SETICON, 1, LoadIconA(HInstance, 'MAINICON'));
+    SetWindowLongA(Handle, GWL_WNDPROC, LongInt(@WndProc));
+  end;
+
 // OpenGL
   DC := GetDC(Handle);
   if PFIdx = -1 then
@@ -2284,7 +2362,8 @@ begin
   wglMakeCurrent(0, 0);
   wglDeleteContext(RC);
   ReleaseDC(Handle, DC);
-  DestroyWindow(Handle);
+  if not FCustom then
+    DestroyWindow(Handle);
 end;
 {$ENDIF}
 {$IFDEF LINUX}
@@ -2334,6 +2413,8 @@ var
   Style : LongWord;
   Rect  : TRect;
 begin
+  if FCustom then
+    Exit;
 // Change main window style
   if FFullScreen then
     Style := 0
@@ -2489,10 +2570,10 @@ begin
   Inc(FFPSIdx);
   if Render.Time - FFPSTime >= 1000 then
   begin
-    FFPS     := FFPSIdx;
+    Render.FFPS := FFPSIdx;
     FFPSIdx  := 0;
     FFPSTime := Render.Time;
-    Caption := 'CoreX [FPS: ' + Utils.Conv(FPS) + ']';
+    Caption := 'CoreX [FPS: ' + Conv(Render.FPS) + ']';
   end;
 end;
 {$ENDREGION}
@@ -2527,6 +2608,47 @@ procedure TInput.Reset;
 begin
   FillChar(FDown, SizeOf(FDown), False);
   Update;
+end;
+
+function TInput.Convert(KeyCode: Word): TInputKey;
+var
+  Key : TInputKey;
+begin
+  for Key := Low(KeyCodes) to High(KeyCodes) do
+    if KeyCodes[Key] = KeyCode then
+    begin
+      Result := Key;
+      Exit;
+    end;
+  Result := KK_NONE;
+end;
+
+function TInput.GetDown(InputKey: TInputKey): Boolean;
+begin
+  Result := FDown[InputKey];
+end;
+
+function TInput.GetHit(InputKey: TInputKey): Boolean;
+begin
+  Result := FHit[InputKey];
+end;
+
+procedure TInput.SetState(InputKey: TInputKey; Value: Boolean);
+begin
+  FDown[InputKey] := Value;
+  if (not Value) and (InputKey <> KK_NONE) then
+  begin
+    FHit[InputKey] := True;
+    FLastKey := InputKey;
+  end;
+end;
+
+procedure TInput.SetCapture(Value: Boolean);
+begin
+  FCapture := Value;
+{$IFDEF WINDOWS}
+  while ShowCursor(not FCapture) = 0 do;
+{$ENDIF}
 end;
 
 procedure TInput.Update;
@@ -2645,47 +2767,6 @@ begin
   end;
 {$ENDIF}
 end;
-
-function TInput.Convert(KeyCode: Word): TInputKey;
-var
-  Key : TInputKey;
-begin
-  for Key := Low(KeyCodes) to High(KeyCodes) do
-    if KeyCodes[Key] = KeyCode then
-    begin
-      Result := Key;
-      Exit;
-    end;
-  Result := KK_NONE;
-end;
-
-function TInput.GetDown(InputKey: TInputKey): Boolean;
-begin
-  Result := FDown[InputKey];
-end;
-
-function TInput.GetHit(InputKey: TInputKey): Boolean;
-begin
-  Result := FHit[InputKey];
-end;
-
-procedure TInput.SetState(InputKey: TInputKey; Value: Boolean);
-begin
-  FDown[InputKey] := Value;
-  if not Value then
-  begin
-    FHit[InputKey] := True;
-    FLastKey := InputKey;
-  end;
-end;
-
-procedure TInput.SetCapture(Value: Boolean);
-begin
-  FCapture := Value;
-{$IFDEF WINDOWS}
-  while ShowCursor(not FCapture) = 0 do;
-{$ENDIF}
-end;
 {$ENDREGION}
 
 // Sound =======================================================================
@@ -2701,7 +2782,7 @@ var
     DLen  : LongWord;
   end;
 begin
-  if Utils.ResManager.Add(FileName, ResIdx) then
+  if ResManager.Add(FileName, ResIdx) then
   begin
     Stream.Init(FileName);
     if Stream.Valid then
@@ -2709,7 +2790,7 @@ begin
       Stream.Read(Header, SizeOf(Header));
       with Header, Fmt do
         if (wBitsPerSample = 16) and (nChannels = 1) and (nSamplesPerSec = 44100) then
-          with Utils.ResManager.Items[ResIdx] do
+          with ResManager.Items[ResIdx] do
           begin
             Length := Header.DLen div nBlockAlign;
             Data   := GetMemory(DLen);
@@ -2726,7 +2807,7 @@ var
   i : LongInt;
 begin
   if ResIdx > -1 then
-    if Utils.ResManager.Delete(ResIdx) then
+    if ResManager.Delete(ResIdx) then
     begin
       i := 0;
       while i < Sound.ChCount do
@@ -2734,7 +2815,7 @@ begin
           Sound.FreeChannel(i)
         else
           Inc(i);
-      FreeMemory(Utils.ResManager.Items[ResIdx].Data);
+      FreeMemory(ResManager.Items[ResIdx].Data);
       ResIdx := -1;
     end;
 end;
@@ -2848,7 +2929,7 @@ begin
     FillChar(AmpData, SizeOf(AmpData), 0);
   // Mix channels sample
     for j := 0 to ChCount - 1 do
-      with Channel[j], Utils.ResManager.Items[Sample^.ResIdx] do
+      with Channel[j], ResManager.Items[Sample^.ResIdx] do
       begin
         for i := 0 to SAMPLE_COUNT - 1 do
         begin
@@ -2925,13 +3006,15 @@ begin
   gl.Enable(GL_ALPHA_TEST);
   gl.AlphaFunc(GL_GREATER, 0.0);
   gl.Disable(GL_DEPTH_TEST);
-  gl.DepthMask(False);
   gl.ColorMask(True, True, True, False);
+  Assert(gl.GetString(GL_RENDERER) = 'GDI Generic', 'Update your video card driver!');
 {
   Writeln('GL_VENDOR   : ', gl.GetString(GL_VENDOR));
   Writeln('GL_RENDERER : ', gl.GetString(GL_RENDERER));
   Writeln('GL_VERSION  : ', gl.GetString(GL_VERSION));
 }
+//  SBuffer[rsMultiTex] := gl.
+  OldTime := Time;
 end;
 
 procedure TRender.Free;
@@ -2982,6 +3065,33 @@ begin
   gl.DepthMask(Value);
 end;
 
+procedure TRender.SetCullFace(Value: Boolean);
+begin
+  if Value then
+    gl.Enable(GL_CULL_FACE)
+  else
+    gl.Disable(GL_CULL_FACE);
+end;
+
+function TRender.Support(SupportFlags: TRenderSupportFlag): Boolean;
+var
+  i : TRenderSupport;
+begin
+  for i := Low(TRenderSupport) to High(TRenderSupport) do
+    if (i in SupportFlags) and (not SBuffer[i]) then
+    begin
+      Result := False;
+      Exit;
+    end;
+  Result := True;
+end;
+
+procedure TRender.Update;
+begin
+  FDeltaTime := (Time - OldTime) / 1000;
+  OldTime := Time;
+end;
+
 procedure TRender.Clear(ClearColor, ClearDepth: Boolean);
 var
   Mask : LongWord;
@@ -3002,20 +3112,18 @@ begin
   gl.MatrixMode(GL_PROJECTION);
   gl.LoadIdentity;
   gl.Ortho(-Width/2, Width/2, -Height/2, Height/2, -1, 1);
+//  gl.Ortho(0, Width, Height, 0, -1, 1);
   gl.MatrixMode(GL_MODELVIEW);
   gl.LoadIdentity;
 end;
 
-procedure TRender.Set3D(FOV, zNear, zFar: Single);
+procedure TRender.Set3D(FOV, Aspect, zNear, zFar: Single);
 var
-  x, y : Single;
+  PM : TMat4f;
 begin
-  x := FOV * pi / 180 * 0.5;
-  y := zNear * Sin(x) / Cos(x);
-  x := y * (Screen.Width / Screen.Height);
+  PM.Perspective(FOV, Aspect, zNear, zFar);
   gl.MatrixMode(GL_PROJECTION);
-  gl.LoadIdentity;
-  gl.Frustum(-x, x, -y, y, zNear, zFar);
+  gl.LoadMatrixf(PM);
   gl.MatrixMode(GL_MODELVIEW);
   gl.LoadIdentity;
 end;
@@ -3044,11 +3152,11 @@ end;
 
 // Texture =====================================================================
 {$REGION 'TTexture'}
-procedure TTexture.Init(DWidth, DHeight: LongInt; DataRGBA: Pointer);
+procedure TTexture.Init(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst);
 begin
-  if Utils.ResManager.Add('', ResIdx) then
+  if ResManager.Add('', ResIdx) then
   begin
-    with Utils.ResManager.Items[ResIdx] do
+    with ResManager.Items[ResIdx] do
     begin
       Width   := DWidth;
       Height  := DHeight;
@@ -3057,7 +3165,7 @@ begin
       gl.GenTextures(1, @ID);
       gl.BindTexture(GL_TEXTURE_2D, ID);
     end;
-    gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, DataRGBA);
+    gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, DType, GL_UNSIGNED_BYTE, Data);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   end;
@@ -3088,14 +3196,14 @@ var
     SomeData2   : array [0..8] of LongWord;
   end;
 begin
-  if Utils.ResManager.Add(FileName, ResIdx) then
+  if ResManager.Add(FileName, ResIdx) then
   begin
     Stream.Init(FileName);
     if Stream.Valid then
     begin
       Stream.Read(DDS, SizeOf(DDS));
       Data := GetMemory(DDS.POLSize);
-      with Utils.ResManager.Items[ResIdx] do
+      with ResManager.Items[ResIdx] do
       begin
         Width  := DDS.Width;
         Height := DDS.Height;
@@ -3130,7 +3238,13 @@ begin
               break;
             end;
 
-        pfRGBbpp := POLSize * 8 div (Width * Height);
+        case f of
+          GL_RGB8  : pfRGBbpp := 24;
+          GL_RGBA8 : pfRGBbpp := 32;
+          GL_COMPRESSED_RGBA_S3TC_DXT1 : pfRGBbpp := 4;
+          GL_COMPRESSED_RGBA_S3TC_DXT3,
+          GL_COMPRESSED_RGBA_S3TC_DXT5 : pfRGBbpp := 8;
+        end;
 
         for i := 0 to MipMapCount - 1 do
         begin
@@ -3157,7 +3271,7 @@ begin
     Stream.Free;
   end;
 
-  with Utils.ResManager.Items[ResIdx] do
+  with ResManager.Items[ResIdx] do
   begin
     Self.FWidth  := Width;
     Self.FHeight := Height;
@@ -3166,21 +3280,25 @@ end;
 
 procedure TTexture.Free;
 begin
-  if Utils.ResManager.Delete(ResIdx) then
-    gl.DeleteTextures(1, @Utils.ResManager.Items[ResIdx].ID);
+  if ResManager.Delete(ResIdx) then
+    gl.DeleteTextures(1, @ResManager.Items[ResIdx].ID);
 end;
 
-procedure TTexture.SetData(X, Y, DWidth, DHeight: LongInt; DataRGBA: Pointer);
+procedure TTexture.SetData(X, Y, DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst);
 begin
   Enable;
-  gl.TexSubImage2D(GL_TEXTURE_2D, 0, X, Y, DWidth, DHeight, GL_RGBA, GL_UNSIGNED_BYTE, DataRGBA);
+  gl.TexSubImage2D(GL_TEXTURE_2D, 0, X, Y, DWidth, DHeight, DType, GL_UNSIGNED_BYTE, Data);
 end;
 
 procedure TTexture.Enable(Channel: LongInt);
 begin
-  if @gl.ActiveTexture <> nil then
-    gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + Channel));
-  gl.BindTexture(GL_TEXTURE_2D, Utils.ResManager.Items[ResIdx].ID);
+  if ResManager.Active[Channel] <> ResIdx then
+  begin
+    if @gl.ActiveTexture <> nil then
+      gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + Channel));
+    gl.BindTexture(GL_TEXTURE_2D, ResManager.Items[ResIdx].ID);
+    ResManager.Active[Channel] := ResIdx;
+  end;
 end;
 {$ENDREGION}
 
@@ -3227,6 +3345,22 @@ end;
 {$ENDREGION}
 
 {$REGION 'TSprite'}
+function TSprite.GetWidth: LongInt;
+begin
+  if (CurIndex >= 0) then
+    Result := Anim.Items[CurIndex].Width
+  else
+    Result := 1;
+end;
+
+function TSprite.GetHeight: LongInt;
+begin
+  if (CurIndex >= 0) then
+    Result := Anim.Items[CurIndex].Height
+  else
+    Result := 1;
+end;
+
 function TSprite.GetPlaying: Boolean;
 begin
   Result := False;
@@ -3289,6 +3423,7 @@ begin
       Blend := b;
       break;
     end;
+  Play(Cfg.Read('sprite', 'Anim', 'default'), True);
   Grid(2, 2);
 end;
 
@@ -3313,13 +3448,13 @@ var
   NewIndex : LongInt;
 begin
   NewIndex := Anim.IndexOf(AnimName);
-  if (NewIndex <> CurIndex) or (not FPlaying) then
+  if (NewIndex > -1) and ((NewIndex <> CurIndex) or (not FPlaying)) then
   begin
     FLoop := Loop;
     StartTime := Render.Time;
     CurIndex := NewIndex;
+    FPlaying := True;
   end;
-  FPlaying := True;
 end;
 
 procedure TSprite.Stop;
@@ -3378,6 +3513,61 @@ begin
 end;
 {$ENDREGION}
 
+// Mesh ========================================================================
+{$REGION 'TMeshBuffer'}
+procedure TMeshBuffer.Init(DataType: TDataType; Size: LongInt; Data: Pointer);
+begin
+  gl.GenBuffers(1, @ID);
+  if DataType = dtVertex then
+    DType := GL_ARRAY_BUFFER
+  else
+    DType := GL_ELEMENT_ARRAY_BUFFER;
+  Enable;
+  gl.BufferData(DType, Size, Data, GL_STATIC_DRAW);
+  Disable;
+end;
+
+procedure TMeshBuffer.Free;
+begin
+  gl.DeleteBuffers(1, @ID);
+end;
+
+procedure TMeshBuffer.SetData(Offset, Size: LongInt; Data: Pointer);
+var
+  p : PByteArray;
+begin
+  Enable;
+  P := gl.MapBuffer(DType, GL_WRITE_ONLY);
+  Move(Data^, P[Offset], Size);
+  gl.UnmapBuffer(DType);
+  Disable;
+end;
+
+procedure TMeshBuffer.Enable;
+begin
+  gl.BindBuffer(DType, ID);
+end;
+
+procedure TMeshBuffer.Disable;
+begin
+  gl.BindBuffer(DType, 0);
+end;
+{$ENDREGION}
+
+{$REGION 'TMesh'}
+procedure TMesh.Draw;
+begin
+  Buffer[dtIndex].Enable;
+  Buffer[dtVertex].Disable;
+{
+  gl.VertexPointer(3, GL_FLOAT, SizeOf(TVec3f), @Map[0, 0]);
+  gl.DrawElements(GL_TRIANGLES, sqr(LOD_SIZE - 1) * 2 * 3, GL_UNSIGNED_INT, @Face[0]);
+}
+  Buffer[dtVertex].Disable;
+  Buffer[dtIndex].Disable;
+end;
+{$ENDREGION}
+
 // OpenGL ======================================================================
 {$REGION 'TGL'}
 procedure TGL.Init;
@@ -3420,9 +3610,11 @@ const
     'glStencilFunc',
     'glDepthFunc',
     'glStencilOp',
+    'glLightfv',
     'glViewport',
     'glBegin',
     'glEnd',
+    'glLineWidth',
     'glColor4ub',
     'glVertex2f',
     'glVertex2fv',
@@ -3448,7 +3640,15 @@ const
     'glTranslatef',
     'glRotatef',
     'glOrtho',
-    'glFrustum'
+    'glFrustum',
+    'glReadPixels',
+    'glGenBuffersARB',
+    'glDeleteBuffersARB',
+    'glBindBufferARB',
+    'glBufferDataARB',
+    'glBufferSubDataARB',
+    'glMapBufferARB',
+    'glUnmapBufferARB'
   );
 var
   i    : LongInt;
@@ -3464,12 +3664,15 @@ begin
       Proc^[i] := GetProc(ProcName[i]);
       if Proc^[i] = nil then
         Proc^[i] := GetProcAddress(Lib, ProcName[i]);
-    {$IFDEF DEBUG}
-      if Proc^[i] = nil then
-        Writeln('- ', ProcName[i]);
-    {$ENDIF}
     end;
   end;
+{$IFDEF WINDOWS}
+  Set8087CW($133F);
+{$ELSE}
+  {$IF DEFINED(cpui386) or DEFINED(cpux86_64)}
+    SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
+  {$IFEND}
+{$ENDIF}
 end;
 
 procedure TGL.Free;
@@ -3478,57 +3681,55 @@ begin
 end;
 {$ENDREGION}
 
-// Common ======================================================================
-{$REGION 'Common'}
-function Rect(Left, Top, Right, Bottom: LongInt): TRect;
-begin
-  Result.Left   := Left;
-  Result.Top    := Top;
-  Result.Right  := Right;
-  Result.Bottom := Bottom;
-end;
-
-function RGBA(R, G, B, A: Byte): TRGBA;
-begin
-  Result.R := R;
-  Result.G := G;
-  Result.B := B;
-  Result.A := A;
-end;
-{$ENDREGION}
-
 // CoreX =======================================================================
 {$REGION 'CoreX'}
-procedure Start(PInit, PFree, PRender: TCoreProc);
+procedure Init;
 begin
-  Utils.Init;
-  chdir(Utils.ExtractFileDir(ParamStr(0)));
+  ResManager.Init;
+  chdir(ExtractFileDir(ParamStr(0)));
   Screen.Init;
   Input.Init;
   Sound.Init;
+end;
 
+procedure Free;
+begin
+  Sound.Free;
+  Input.Free;
+  Screen.Free;
+//  ResManager.Free;
+end;
+
+procedure Start(PInit, PFree, PRender: TCoreProc);
+begin
+  Init;
   PInit;
-  Render.OldTime := Render.Time;
   while not Screen.FQuit do
   begin
     Input.Update;
     Screen.Update;
-    Render.FDeltaTime := (Render.Time - Render.OldTime) / 1000;
-    Render.OldTime := Render.Time;
+    Render.Update;
     PRender;
     Screen.Swap;
   end;
   PFree;
-
-  Sound.Free;
-  Input.Free;
-  Screen.Free;
-  Utils.Free;
+  Free;
 end;
 
 procedure Quit;
 begin
   Screen.FQuit := True;
+end;
+
+procedure Assert(Flag: Boolean; const Error: AnsiString);
+begin
+  if Flag then
+  begin
+    {$IFDEF WINDOWS}
+      MessageBoxA(Screen.Handle, PAnsiChar(Error), 'Assert', 0);
+    {$ENDIF}
+    Halt;
+  end;
 end;
 {$ENDREGION}
 
