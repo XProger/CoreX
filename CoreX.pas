@@ -114,7 +114,6 @@ type
   operator - (const a, b: TVec2f): TVec2f;
   operator * (const a, b: TVec2f): TVec2f;
   operator * (const v: TVec2f; x: Single): TVec2f;
-  operator / (const v: TVec2f; x: Single): TVec2f;
 // TVec3f
   operator = (const a, b: TVec3f): Boolean;
   operator + (const a, b: TVec3f): TVec3f;
@@ -175,27 +174,6 @@ type
     R, G, B, A : Byte;
   end;
 
-
-  function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
-  function Conv(const Str: string; Def: Single = 0): Single; overload;
-  function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
-  function Conv(Value: LongInt): string; overload;
-  function Conv(Value: Single; Digits: LongInt = 6): string; overload;
-  function Conv(Value: Boolean): string; overload;
-  function LowerCase(const Str: string): string;
-  function Trim(const Str: string): string;
-  function DeleteChars(const Str: string; Chars: TCharSet): string;
-  function ExtractFileDir(const Path: string): string;
-  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
-  function RGBA(R, G, B, A: Byte): TRGBA; inline;
-
-{
-  TThread = object
-    procedure Init;
-    procedure Free;
-  end;
-}
-type
   TStream = object
   private
     SType  : (stFile, stMemory);
@@ -240,10 +218,40 @@ type
     function Read(const Category, Name: string; Default: Boolean = False): Boolean; overload;
     function CategoryName(Idx: LongInt): string;
   end;
+
+  TThreadProc = procedure (Param: LongInt); stdcall;
+
+  TThread = object
+  private
+    FActive : Boolean;
+    FHandle : LongWord;
+    procedure SetActive(Value: Boolean);
+    procedure SetCPUMask(Value: LongInt);
+  public
+    procedure Init(Proc: TThreadProc; Param: Pointer; Activate: Boolean = True);
+    procedure Free;
+    procedure Wait(ms: LongWord = 0); // WTF! ???
+    property Active: Boolean read FActive write SetActive;
+    property CPUMask: LongInt write SetCPUMask;
+  end;
+
+  function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
+  function Conv(const Str: string; Def: Single = 0): Single; overload;
+  function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
+  function Conv(Value: LongInt): string; overload;
+  function Conv(Value: Single; Digits: LongInt = 6): string; overload;
+  function Conv(Value: Boolean): string; overload;
+  function LowerCase(const Str: string): string;
+  function Trim(const Str: string): string;
+  function DeleteChars(const Str: string; Chars: TCharSet): string;
+  function ExtractFileDir(const Path: string): string;
+  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
+  function RGBA(R, G, B, A: Byte): TRGBA; inline;
 {$ENDREGION}
 
 // Screen ----------------------------------------------------------------------
 {$REGION 'Screen'}
+type
   TAAType = (aa0x, aa1x, aa2x, aa4x, aa8x, aa16x);
 
   TScreen = object
@@ -364,6 +372,7 @@ type
     FVolume : LongInt;
     procedure SetVolume(Value: LongInt);
   public
+    Frequency : LongInt;
     procedure Load(const FileName: string);
     procedure Free;
     procedure Play(Loop: Boolean = False);
@@ -545,6 +554,7 @@ type
 
   TRender = object
   private
+    FCPUCount  : LongInt;
     FDeltaTime : Single;
     OldTime    : LongInt;
     FFPS       : LongInt;
@@ -564,6 +574,7 @@ type
     procedure Set2D(Width, Height: LongInt);
     procedure Set3D(FOV, Aspect: Single; zNear: Single = 0.1; zFar: Single = 1000);
     procedure Quad(x, y, w, h, s, t, sw, th: Single);
+    property CPUCount: LongInt read FCPUCount;
     property FPS: LongInt read FFPS;
     property Time: LongInt read GetTime;
     property DeltaTime: Single read FDeltaTime;
@@ -572,6 +583,11 @@ type
     property DepthWrite: Boolean write SetDepthWrite;
     property CullFace: Boolean write SetCullFace;
   end;
+{$ENDREGION}
+
+// Physic ----------------------------------------------------------------------
+{$REGION 'Physic'}
+
 {$ENDREGION}
 
 // Texture ---------------------------------------------------------------------
@@ -590,6 +606,26 @@ type
     property Width: LongInt read FWidth;
     property Height: LongInt read FHeight;
   end;
+{$ENDREGION}
+
+// Font ------------------------------------------------------------------------
+{$REGION 'Font'}
+
+{$ENDREGION}
+
+// GUI -------------------------------------------------------------------------
+{$REGION 'GUI'}
+
+{$ENDREGION}
+
+// Shader ----------------------------------------------------------------------
+{$REGION 'Shader'}
+
+{$ENDREGION}
+
+// Material --------------------------------------------------------------------
+{$REGION 'Material'}
+
 {$ENDREGION}
 
 // Sprite ----------------------------------------------------------------------
@@ -670,8 +706,10 @@ type
   TDataType = (dtIndex, dtVertex);
 
   TMeshBuffer = object
+  private
     ID    : LongWord;
     DType : TGLConst;
+  public
     procedure Init(DataType: TDataType; Size: LongInt; Data: Pointer);
     procedure Free;
     procedure SetData(Offset, Size: LongInt; Data: Pointer);
@@ -685,13 +723,27 @@ type
   end;
 {$ENDREGION}
 
+// Model -----------------------------------------------------------------------
+{$REGION 'Model'}
+
+{$ENDREGION}
+
+// Terrain ---------------------------------------------------------------------
+{$REGION 'Terrain'}
+
+{$ENDREGION}
+
+// Scene -----------------------------------------------------------------------
+{$REGION 'Scene'}
+
+{$ENDREGION}
+
 var
   gl      : TGL;
   Screen  : TScreen;
   Input   : TInput;
   Sound   : TSound;
   Render  : TRender;
-
 
   procedure Init;
   procedure Free;
@@ -857,6 +909,14 @@ const
   procedure EnterCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
   procedure LeaveCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
   procedure DeleteCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
+  function CreateThread(lpThreadAttributes: Pointer; dwStackSize: LongWord; lpStartAddress: Pointer; lpParameter: Pointer; dwCreationFlags: LongWord; lpThreadId: Pointer): LongWord; stdcall; external kernel32;
+  function TerminateThread(hThread: LongWord; dwExitCode: LongWord): Boolean; stdcall; external kernel32;
+  function SuspendThread(hThread: LongWord): LongWord; stdcall; external kernel32;
+  function ResumeThread(hThread: LongWord): LongWord; stdcall; external kernel32;
+  procedure Sleep(dwMilliseconds: LongWord); stdcall; external kernel32;
+  function SetThreadAffinityMask(hThread: LongWord; dwThreadAffinityMask: LongWord): LongWord; stdcall; external kernel32;
+  function GetProcessAffinityMask(hProcess: LongWord; out lpProcessAffinityMask, lpSystemAffinityMask: LongWord): Boolean; stdcall; external kernel32;
+  function GetCurrentProcess: LongWord; stdcall; external kernel32;
   function waveOutOpen(WaveOut: Pointer; DeviceID: LongWord; Fmt, dwCallback, dwInstance: Pointer; dwFlags: LongWord): LongWord; stdcall; external winmm;
   function waveOutClose(WaveOut: LongWord): LongWord; stdcall; external winmm;
   function waveOutPrepareHeader(WaveOut: LongWord; WaveHdr: Pointer; uSize: LongWord): LongWord; stdcall; external winmm;
@@ -1368,9 +1428,11 @@ end;
   (const m: TMat4f; const v: TVec3f): TVec3f;
 begin
   with m do
-    Result := Vec3f(e00 * v.x + e01 * v.y + e02 * v.z + e03,
-                    e10 * v.x + e11 * v.y + e12 * v.z + e13,
-                    e20 * v.x + e21 * v.y + e22 * v.z + e23);
+  begin
+    Result.x := e00 * v.x + e01 * v.y + e02 * v.z + e03;
+    Result.y := e10 * v.x + e11 * v.y + e12 * v.z + e13;
+    Result.z := e20 * v.x + e21 * v.y + e22 * v.z + e23;
+  end;
 end;
 
 {$IFDEF FPC}operator * {$ELSE}class operator TMat4f.Multiply{$ENDIF}
@@ -1535,7 +1597,7 @@ procedure TMat4f.Perspective(FOV, Aspect, ZNear, ZFar: Single);
 var
   x, y : Single;
 begin
-  FOV := Clamp(FOV, 0, 179.9);
+  FOV := Clamp(FOV, EPS, 180 - EPS);
   y := ZNear * Tan(FOV * deg2rad * 0.5);
   x := y * Aspect;
   Frustum(-x, x, -y, y, ZNear, ZFar);
@@ -2022,6 +2084,44 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TThread'}
+procedure TThread.SetActive(Value: Boolean);
+begin
+  FActive := Value;
+  if Value then
+    ResumeThread(FHandle)
+  else
+    SuspendThread(FHandle);
+end;
+
+procedure TThread.SetCPUMask(Value: LongInt);
+begin
+  SetThreadAffinityMask(FHandle, Value);
+end;
+
+procedure TThread.Init(Proc: TThreadProc; Param: Pointer; Activate: Boolean);
+var
+  Flag : LongWord;
+begin
+  FActive := Activate;
+  if FActive then
+    Flag := 0
+  else
+    Flag := 4; // CREATE_SUSPENDED;
+  FHandle := CreateThread(nil, 0, @Proc, Param, Flag, nil);
+end;
+
+procedure TThread.Free;
+begin
+  TerminateThread(FHandle, 0);
+end;
+
+procedure TThread.Wait(ms: LongWord);
+begin
+  Sleep(ms);
+end;
+{$ENDREGION}
+
 {$REGION 'Utils'}
 function Conv(const Str: string; Def: LongInt): LongInt;
 var
@@ -2163,11 +2263,11 @@ begin
         FActive := Word(wParam) = 1;
         if FullScreen then
         begin
-          FullScreen := FActive;
           if FActive then
             ShowWindow(Handle, SW_SHOW)
           else
             ShowWindow(Handle, SW_MINIMIZE);
+          FullScreen := FActive;
           FFullScreen := True;
         end;
         Input.Reset;
@@ -2419,15 +2519,16 @@ begin
   if FFullScreen then
     Style := 0
   else
-    Style := $CA0000; // WS_CAPTION or WS_SYSMENU or WS_MINIMIZEBOX;
+    Style := $CA0000; // WS_CAPTION or WS_SYSMENU or WS_MINIMIZEBOX
   SetWindowLongA(Handle, GWL_STYLE, Style or WS_VISIBLE);
+
   Rect.Left   := 0;
   Rect.Top    := 0;
   Rect.Right  := Width;
   Rect.Bottom := Height;
   AdjustWindowRect(Rect, Style, False);
   with Rect do
-    SetWindowPos(Handle, 0, 0, 0, Right - Left, Bottom - Top, $220);
+    SetWindowPos(Handle, LongWord(-2 + Ord(FFullScreen)), 0, 0, Right - Left, Bottom - Top, $222);
   gl.Viewport(0, 0, Width, Height);
   VSync := FVSync;
   Swap;
@@ -2797,9 +2898,10 @@ begin
             Stream.Read(Data^, DLen);
           end;
       Stream.Free;
-      Volume := 100;
     end;
   end;
+  Frequency := 44100;
+  Volume    := 100;
 end;
 
 procedure TSample.Free;
@@ -2933,7 +3035,7 @@ begin
       begin
         for i := 0 to SAMPLE_COUNT - 1 do
         begin
-          sidx := Offset + i; // * Freq / 22050
+          sidx := Offset + Trunc(i * Sample^.Frequency / 44100);
           if sidx >= Length then
             if Loop then
             begin
@@ -2994,6 +3096,8 @@ end;
 // Render ======================================================================
 {$REGION 'TRender'}
 procedure TRender.Init;
+var
+  pm, sm : LongWord;
 begin
   gl.Init;
 {$IFDEF WINDOWS}
@@ -3014,6 +3118,16 @@ begin
   Writeln('GL_VERSION  : ', gl.GetString(GL_VERSION));
 }
 //  SBuffer[rsMultiTex] := gl.
+
+// Get number of processors
+  GetProcessAffinityMask(GetCurrentProcess, pm, sm);
+  FCPUCount := 0;
+  while pm > 0 do
+  begin
+    pm := pm shr 1;
+    Inc(FCPUCount);
+  end;
+
   OldTime := Time;
 end;
 
@@ -3704,6 +3818,7 @@ procedure Start(PInit, PFree, PRender: TCoreProc);
 begin
   Init;
   PInit;
+  Input.Update;
   while not Screen.FQuit do
   begin
     Input.Update;
@@ -3726,7 +3841,7 @@ begin
   if Flag then
   begin
     {$IFDEF WINDOWS}
-      MessageBoxA(Screen.Handle, PAnsiChar(Error), 'Assert', 0);
+      MessageBoxA(Screen.Handle, PAnsiChar(Error), 'Fatal Error', 16);
     {$ENDIF}
     Halt;
   end;
