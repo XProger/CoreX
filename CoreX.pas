@@ -23,9 +23,6 @@ interface
   {$DEFINE stdcall := cdecl} // For TGL
 {$ENDIF}
 
-type
-  TCoreProc = procedure;
-
 // Math ------------------------------------------------------------------------
 {$REGION 'Math'}
 type
@@ -156,6 +153,9 @@ const
 
 // Utils -----------------------------------------------------------------------
 {$REGION 'Utils'}
+const
+  CRLF = #13#10;
+
 type
   TCharSet = set of AnsiChar;
 
@@ -174,27 +174,29 @@ type
     R, G, B, A : Byte;
   end;
 
+{ Stream }
   TStream = object
-  private
-    SType  : (stFile, stMemory);
-    FValid : Boolean;
-    FSize  : LongInt;
-    FPos   : LongInt;
-    F      : File;
-    Mem    : Pointer;
-    procedure SetPos(Value: LongInt);
-  public
     procedure Init(Memory: Pointer; MemSize: LongInt); overload;
     procedure Init(const FileName: string; RW: Boolean = False); overload;
     procedure Free;
+  private
+    SType  : (stFile, stMemory);
+    FSize  : LongInt;
+    FPos   : LongInt;
+    FBPos  : LongInt;
+    F      : File;
+    Mem    : Pointer;
+    procedure SetPos(Value: LongInt);
+    procedure SetBlock(BPos, BSize: LongInt);
+  public
     procedure CopyFrom(const Stream: TStream);
     function Read(out Buf; BufSize: LongInt): LongInt;
     function Write(const Buf; BufSize: LongInt): LongInt;
-    property Valid: Boolean read FValid;
     property Size: LongInt read FSize;
     property Pos: LongInt read FPos write SetPos;
   end;
 
+{ ConfigFile }
   TConfigFile = object
   private
     Data : array of record
@@ -219,17 +221,60 @@ type
     function CategoryName(Idx: LongInt): string;
   end;
 
+{ XML }
+  TXMLParam = record
+    Name  : string;
+    Value : string;
+  end;
+
+  TXMLParams = class
+    constructor Create(const Text: string);
+  private
+    FCount  : LongInt;
+    FParams : array of TXMLParam;
+    function GetParam(const Name: string): TXMLParam;
+    function GetParamI(Idx: LongInt): TXMLParam;
+  public
+    property Count: LongInt read FCount;
+    property Param[const Name: string]: TXMLParam read GetParam; default;
+    property ParamI[Idx: LongInt]: TXMLParam read GetParamI;
+  end;
+
+  TXML = class
+    constructor Create(const FileName: string); overload;
+    constructor Create(const Text: string; BeginPos: LongInt); overload;
+    destructor Destroy; override;
+  private
+    FCount   : LongInt;
+    FNode    : array of TXML;
+    FTag     : string;
+    FContent : string;
+    FDataLen : LongInt;
+    FParams  : TXMLParams;
+    function GetNode(const TagName: string): TXML;
+    function GetNodeI(Idx: LongInt): TXML;
+  public
+    property Count: LongInt read FCount;
+    property Tag: string read FTag;
+    property Content: string read FContent;
+    property DataLen: LongInt read FDataLen;
+    property Params: TXMLParams read FParams;
+    property Node[const TagName: string]: TXML read GetNode; default;
+    property NodeI[Idx: LongInt]: TXML read GetNodeI;
+  end;
+
+{ Thread }
   TThreadProc = procedure (Param: LongInt); stdcall;
 
   TThread = object
+    procedure Init(Proc: TThreadProc; Param: Pointer; Activate: Boolean = True);
+    procedure Free;
   private
     FActive : Boolean;
     FHandle : LongWord;
     procedure SetActive(Value: Boolean);
     procedure SetCPUMask(Value: LongInt);
   public
-    procedure Init(Proc: TThreadProc; Param: Pointer; Activate: Boolean = True);
-    procedure Free;
     procedure Wait(ms: LongWord = 0); // WTF! ???
     property Active: Boolean read FActive write SetActive;
     property CPUMask: LongInt write SetCPUMask;
@@ -242,11 +287,40 @@ type
   function Conv(Value: Single; Digits: LongInt = 6): string; overload;
   function Conv(Value: Boolean): string; overload;
   function LowerCase(const Str: string): string;
+  function TrimChars(const Str: string; Chars: TCharSet): string;
   function Trim(const Str: string): string;
   function DeleteChars(const Str: string; Chars: TCharSet): string;
   function ExtractFileDir(const Path: string): string;
   function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
   function RGBA(R, G, B, A: Byte): TRGBA; inline;
+{$ENDREGION}
+
+// FileSys ---------------------------------------------------------------------
+{$REGION 'FileSys'}
+type
+  TFilePack = object
+  private
+    FName  : string;
+    FTable : array of record
+        Pos, Size : LongInt;
+        FileName  : string;
+      end;
+    procedure Init(const PackName: string);
+  public
+    function Open(const FileName: string; out Stream: TStream): Boolean;
+    property Name: string read FName;
+  end;
+
+  TFileSys = object
+  private
+    FPack : array of TFilePack;
+    procedure Init;
+  public
+    procedure Clear;
+    procedure Add(const PackName: string);
+    procedure Del(const PackName: string);
+    function Open(const FileName: string; RW: Boolean = False): TStream;
+  end;
 {$ENDREGION}
 
 // Screen ----------------------------------------------------------------------
@@ -535,6 +609,7 @@ type
     Ortho           : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     Frustum         : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     ReadPixels      : procedure (x, y, width, height: LongInt; format, _type: TGLConst; pixels: Pointer); stdcall;
+  // VBO
     GenBuffers      : procedure (n: LongInt; buffers: Pointer); stdcall;
     DeleteBuffers   : procedure (n: LongInt; const buffers: Pointer); stdcall;
     BindBuffer      : procedure (target: TGLConst; buffer: LongWord); stdcall;
@@ -542,6 +617,32 @@ type
     BufferSubData   : procedure (target: TGLConst; offset, size: LongInt; const data: Pointer); stdcall;
     MapBuffer       : function  (target, access: TGLConst): Pointer; stdcall;
     UnmapBuffer     : function  (target: TGLConst): Boolean; stdcall;
+  // GLSL Shaders
+    GetProgramiv      : procedure (_program: LongWord; pname: TGLConst; params: Pointer); stdcall;
+    CreateProgram     : function: LongWord;
+    DeleteProgram     : procedure (_program: LongWord); stdcall;
+    LinkProgram       : procedure (_program: LongWord); stdcall;
+    UseProgram        : procedure (_program: LongWord); stdcall;
+    GetProgramInfoLog : procedure (_program: LongWord; maxLength: LongInt; var length: LongInt; infoLog: PAnsiChar); stdcall;
+    GetShaderiv       : procedure (_shader: LongWord; pname: TGLConst; params: Pointer); stdcall;
+    CreateShader      : function  (shaderType: TGLConst): LongWord; stdcall;
+    DeleteShader      : procedure (_shader: LongWord); stdcall;
+    ShaderSource      : procedure (_shader: LongWord; count: LongInt; src: Pointer; len: Pointer); stdcall;
+    AttachShader      : procedure (_program, _shader: LongWord); stdcall;
+    CompileShader     : function  (_shader: LongWord): Boolean; stdcall;
+    GetShaderInfoLog  : procedure (_shader: LongWord; maxLength: LongInt; var length: LongInt; infoLog: PAnsiChar); stdcall;
+    GetUniformLocation  : function  (_program: LongWord; const ch: PAnsiChar): LongInt; stdcall;
+    Uniform1iv          : procedure (location, count: LongInt; value: Pointer); stdcall;
+    Uniform1fv          : procedure (location, count: LongInt; value: Pointer); stdcall;
+    Uniform2fv          : procedure (location, count: LongInt; value: Pointer); stdcall;
+    Uniform3fv          : procedure (location, count: LongInt; value: Pointer); stdcall;
+    Uniform4fv          : procedure (location, count: LongInt; value: Pointer); stdcall;
+    UniformMatrix3fv    : procedure (location, count: LongInt; transpose: Boolean; value: Pointer); stdcall;
+    UniformMatrix4fv    : procedure (location, count: LongInt; transpose: Boolean; value: Pointer); stdcall;
+    GetAttribLocation        : function  (_program: LongWord; const ch: PAnsiChar): LongInt; stdcall;
+    EnableVertexAttribArray  : procedure (index: LongWord); stdcall;
+    DisableVertexAttribArray : procedure (index: LongWord); stdcall;
+    VertexAttribPointer      : procedure (index: LongWord; size: LongInt; _type: TGLConst; normalized: Boolean; stride: LongInt; const ptr: Pointer); stdcall;
   end;
 {$ENDREGION}
 
@@ -549,11 +650,13 @@ type
 {$REGION 'Render'}
   TBlendType = (btNone, btNormal, btAdd, btMult);
 
-  TRenderSupport = (rsMultiTex, rsVertexBuf, rsShader);
-  TRenderSupportFlag = set of TRenderSupport;
+  TRenderSupport = (rsMT, rsVBO, rsFBO, rsGLSL, rsOQ);
 
   TRender = object
   private
+    FVendor   : string;
+    FRenderer : string;
+    FVersion  : string;
     FCPUCount  : LongInt;
     FDeltaTime : Single;
     OldTime    : LongInt;
@@ -567,13 +670,16 @@ type
     procedure SetDepthWrite(Value: Boolean);
     procedure SetCullFace(Value: Boolean);
   public
-    function Support(SupportFlags: TRenderSupportFlag): Boolean;
+    function Support(RenderSupport: TRenderSupport): Boolean;
     procedure Update;
     procedure Clear(ClearColor, ClearDepth: Boolean);
     procedure Color(R, G, B, A: Byte);
     procedure Set2D(Width, Height: LongInt);
     procedure Set3D(FOV, Aspect: Single; zNear: Single = 0.1; zFar: Single = 1000);
     procedure Quad(x, y, w, h, s, t, sw, th: Single);
+    property Vendor: string read FVendor;
+    property Renderer: string read FRenderer;
+    property Version: string read FVersion;
     property CPUCount: LongInt read FCPUCount;
     property FPS: LongInt read FFPS;
     property Time: LongInt read GetTime;
@@ -620,7 +726,45 @@ type
 
 // Shader ----------------------------------------------------------------------
 {$REGION 'Shader'}
+  TShaderUniformType = (utInt, utFloat, utVec2, utVec3, utVec4, utMat3, utMat4);
+  TShaderAttribType  = (atFloat, atVec2, atVec3, atVec4);
 
+  TShaderUniform = object
+  private
+    FType : TShaderUniformType;
+    FID   : LongInt;
+    FName : string;
+    procedure Init(ShaderID: LongWord; UniformType: TShaderUniformType; const UName: string);
+  public
+    procedure Value(const Data; Count: LongInt = 1);
+    property Name: string read FName;
+  end;
+
+  TShaderAttrib = object
+  private
+    FType : TShaderAttribType;
+    FID   : LongInt;
+    FName : string;
+    procedure Init(ShaderID: LongWord; AttribType: TShaderAttribType; const AName: string);
+  public
+    procedure Value(Stride: LongInt; const Data);
+    property Name: string read FName;
+  end;
+
+  TShader = object
+    procedure Init(const FileName: string; const Defines: string = '');
+    procedure Free;
+  private
+    ResIdx : LongInt;
+    FID    : LongWord;
+    FUniform : array of TShaderUniform;
+    FAttrib  : array of TShaderAttrib;
+  public
+    function Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
+    function Attrib(AttribType: TShaderAttribType; const AName: string): TShaderAttrib;
+    procedure Enable;
+    procedure Disable;
+  end;
 {$ENDREGION}
 
 // Material --------------------------------------------------------------------
@@ -707,14 +851,18 @@ type
 
   TMeshBuffer = object
   private
-    ID    : LongWord;
-    DType : TGLConst;
+    ResIdx : LongInt;
+    RType  : LongInt;
+    DType  : TGLConst;
+    ID     : LongWord;
+    FData  : Pointer;
   public
     procedure Init(DataType: TDataType; Size: LongInt; Data: Pointer);
     procedure Free;
     procedure SetData(Offset, Size: LongInt; Data: Pointer);
     procedure Enable;
     procedure Disable;
+    property DataPtr: Pointer read FData;
   end;
 
   TMesh = object
@@ -738,7 +886,11 @@ type
 
 {$ENDREGION}
 
+type
+  TCoreProc = procedure;
+
 var
+  FileSys : TFileSys;
   gl      : TGL;
   Screen  : TScreen;
   Input   : TInput;
@@ -749,7 +901,7 @@ var
   procedure Free;
   procedure Start(PInit, PFree, PRender: TCoreProc);
   procedure Quit;
-  procedure Assert(Flag: Boolean; const Error: AnsiString = '');
+  procedure Assert(const Error: string; Flag: Boolean = True);
 
 implementation
 
@@ -909,7 +1061,7 @@ const
   procedure EnterCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
   procedure LeaveCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
   procedure DeleteCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
-  function CreateThread(lpThreadAttributes: Pointer; dwStackSize: LongWord; lpStartAddress: Pointer; lpParameter: Pointer; dwCreationFlags: LongWord; lpThreadId: Pointer): LongWord; stdcall; external kernel32;
+  function CreateThread(lpThreadAttributes: Pointer; dwStackSize: LongWord; lpStartAddress: TThreadProc; lpParameter: Pointer; dwCreationFlags: LongWord; lpThreadId: Pointer): LongWord; stdcall; external kernel32;
   function TerminateThread(hThread: LongWord; dwExitCode: LongWord): Boolean; stdcall; external kernel32;
   function SuspendThread(hThread: LongWord): LongWord; stdcall; external kernel32;
   function ResumeThread(hThread: LongWord): LongWord; stdcall; external kernel32;
@@ -1764,13 +1916,14 @@ end;
 // Utils =======================================================================
 {$REGION 'TResManager'}
 type
-  TResType = (rtTexture, rtSound);
+  TResType = (rtTexture, rtShader, rtSound);
+  TResActive = (raTexture, raShader = 16, raVbuffer, raIBuffer);
 
   TResData = record
     Ref  : LongInt;
     Name : string;
     case TResType of
-      rtTexture : (
+      rtTexture, rtShader : (
         ID     : LongWord;
         Width  : LongInt;
         Height : LongInt;
@@ -1784,7 +1937,7 @@ type
   TResManager = object
     Items : array of TResData;
     Count : LongInt;
-    Active : array [0..16] of LongInt;
+    Active : array [TResActive] of LongInt;
     procedure Init;
     function Add(const Name: string; out Idx: LongInt): Boolean;
     function Delete(Idx: LongInt): Boolean;
@@ -1795,11 +1948,11 @@ var
 
 procedure TResManager.Init;
 var
-  i : Integer;
+  i : TResActive;
 begin
   Items := nil;
   Count := 0;
-  for i := 0 to Length(Active) - 1 do
+  for i := Low(i) to High(i) do
     Active[i] := -1;
 end;
 
@@ -1839,14 +1992,14 @@ end;
 
 function TResManager.Delete(Idx: LongInt): Boolean;
 var
- i : Integer;
+ i : TResActive;
 begin
   Dec(Items[Idx].Ref);
   Result := Items[Idx].Ref <= 0;
   if Result then
   begin
     Items[Idx].Name := '';
-    for i := 0 to Length(Active) - 1 do
+    for i := Low(i) to High(i) do
       if Active[i] = Idx then
         Active[i] := -1;
   end;
@@ -1854,53 +2007,40 @@ end;
 {$ENDREGION}
 
 {$REGION 'TStream'}
-procedure TStream.SetPos(Value: LongInt);
-begin
-  FPos := Value;
-  if SType = stFile then
-    Seek(F, FPos);
-end;
-
 procedure TStream.Init(Memory: Pointer; MemSize: LongInt);
 begin
   SType := stMemory;
   Mem   := Memory;
   FSize := MemSize;
   FPos  := 0;
+  FBPos := 0;
 end;
 
 procedure TStream.Init(const FileName: string; RW: Boolean);
 begin
   SType := stFile;
-  FileMode := 2;
-  AssignFile(F, FileName);
-{$I-}
-  if RW then
-  begin
-    FileMode := 1;
-    Rewrite(F, 1)
-  end else
-  begin
-    FileMode := 0;
-    Reset(F, 1);
-  end;
-{$I+}
-  if IOResult = 0 then
-  begin
-    FSize  := FileSize(F);
-    FPos   := 0;
-    FValid := True;
-  end else
-    FValid := False;
+  FBPos := 0;
+  Self  := FileSys.Open(FileName, RW);
 end;
 
 procedure TStream.Free;
 begin
-  if FValid then
-  begin
-    if SType = stFile then
-      CloseFile(F);
-  end;
+  if SType = stFile then
+    CloseFile(F);
+end;
+
+procedure TStream.SetPos(Value: LongInt);
+begin
+  FPos := Value;
+  if SType = stFile then
+    Seek(F, FBPos + FPos);
+end;
+
+procedure TStream.SetBlock(BPos, BSize: LongInt);
+begin
+  FSize := BSize;
+  FBPos := BPos;
+  Pos := 0;
 end;
 
 procedure TStream.CopyFrom(const Stream: TStream);
@@ -1949,17 +2089,31 @@ end;
 
 procedure TConfigFile.Load(const FileName: string);
 var
-  F : TextFile;
-  Category, Line : string;
+  AnsiText : AnsiString;
+  Text, Category, Line : string;
   CatId : LongInt;
+  Stream : TStream;
+  i, BeginPos : LongInt;
 begin
   Data := nil;
   CatId := -1;
-  AssignFile(F, FileName);
-  Reset(F);
-  while not Eof(F) do
+  Stream.Init(FileName);
+  SetLength(AnsiText, Stream.Size);
+  Stream.Read(AnsiText[1], Length(AnsiText));
+  Stream.Free;
+  Text := string(AnsiText);
+  BeginPos := 1;
+  while BeginPos < Length(Text) do
   begin
-    Readln(F, Line);
+    for i := BeginPos to Length(Text) do
+      if (Text[i] = #13) or (i = Length(Text)) then
+      begin
+        Line := Copy(Text, BeginPos, i - BeginPos + 1);
+        BeginPos := i + 1;
+        break;
+      end;
+    Line := Trim(Line);
+
     if Line <> '' then
       if Line[1] <> '[' then
       begin
@@ -1980,24 +2134,25 @@ begin
         Data[CatId].Category := Category;
       end;
   end;
-  CloseFile(F);
 end;
 
 procedure TConfigFile.Save(const FileName: string);
 var
-  F : TextFile;
+  Stream : TStream;
+  Text   : string;
   i, j : LongInt;
 begin
-  AssignFile(F, FileName);
-  Rewrite(F);
+  Text := '';
   for i := 0 to Length(Data) - 1 do
   begin
-    Writeln(F, '[', Data[i].Category, ']');
+    Text := Text + '[' + Data[i].Category + ']' + CRLF;
     for j := 0 to Length(Data[i].Params) - 1 do
-      Writeln(F, Data[i].Params[j].Name, ' = ', Data[i].Params[j].Value);
-    Writeln(F);
+      Text := Text + Data[i].Params[j].Name + ' = ' + Data[i].Params[j].Value + CRLF;
+    Text := Text + CRLF;
   end;
-  CloseFile(F);
+  Stream.Init(FileName, True);
+  Stream.Write(AnsiString(Text)[1], Length(Text));
+  Stream.Free;
 end;
 
 procedure TConfigFile.Write(const Category, Name, Value: string);
@@ -2084,41 +2239,289 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TXMLParam'}
+constructor TXMLParams.Create(const Text: string);
+var
+  i          : LongInt;
+  Flag       : (F_BEGIN, F_NAME, F_VALUE);
+  ParamIdx   : LongInt;
+  IndexBegin : LongInt;
+  ReadValue  : Boolean;
+  TextFlag   : Boolean;
+begin
+  Flag       := F_BEGIN;
+  ParamIdx   := -1;
+  IndexBegin := 1;
+  ReadValue  := False;
+  TextFlag   := False;
+  for i := 1 to Length(Text) do
+    case Flag of
+      F_BEGIN :
+        if Text[i] <> ' ' then
+        begin
+          ParamIdx := Length(FParams);
+          SetLength(FParams, ParamIdx + 1);
+          FParams[ParamIdx].Name  := '';
+          FParams[ParamIdx].Value := '';
+          Flag := F_NAME;
+          IndexBegin := i;
+        end;
+      F_NAME :
+        if Text[i] = '=' then
+        begin
+          FParams[ParamIdx].Name := Trim(Copy(Text, IndexBegin, i - IndexBegin));
+          Flag := F_VALUE;
+          IndexBegin := i + 1;
+        end;
+      F_VALUE :
+        begin
+          if Text[i] = '"' then
+            TextFlag := not TextFlag;
+          if (Text[i] <> ' ') and (not TextFlag) then
+            ReadValue := True
+          else
+            if ReadValue then
+            begin
+              FParams[ParamIdx].Value := TrimChars(Trim(Copy(Text, IndexBegin, i - IndexBegin)), ['"']);
+              Flag := F_BEGIN;
+              ReadValue := False;
+              ParamIdx := -1;
+            end else
+              continue;
+        end;
+    end;
+  if ParamIdx <> -1 then
+    FParams[ParamIdx].Value := TrimChars(Trim(Copy(Text, IndexBegin, Length(Text) - IndexBegin + 1)), ['"']);
+  FCount := Length(FParams);
+end;
+
+function TXMLParams.GetParam(const Name: string): TXMLParam;
+const
+  NullParam : TXMLParam = (Name: ''; Value: '');
+var
+  i : LongInt;
+begin
+  for i := 0 to Count - 1 do
+    if FParams[i].Name = Name then
+    begin
+      Result.Name  := FParams[i].Name;
+      Result.Value := FParams[i].Value;
+      Exit;
+    end;
+  Result := NullParam;
+end;
+
+function TXMLParams.GetParamI(Idx: LongInt): TXMLParam;
+begin
+  Result.Name  := FParams[Idx].Name;
+  Result.Value := FParams[Idx].Value;
+end;
+{$ENDREGION}
+
+{$REGION 'TXML'}
+constructor TXML.Create(const FileName: string);
+const
+  UTF16_HEADER : Word = $FEFF;
+var
+  Stream   : TStream;
+  AnsiText : AnsiString;
+  WideText : WideString;
+  Text     : string;
+  Code     : Word;
+  Size     : LongInt;
+begin
+  Stream.Init(FileName);
+  Size := Stream.Size;
+  Stream.Read(Code, SizeOf(Code));
+  if Code = UTF16_HEADER then
+  begin
+    SetLength(WideText, Size div 2);
+    Stream.Read(WideText[1], Size);
+    Text := string(WideText);
+  end else
+  begin
+    Stream.Pos := 0;
+    SetLength(AnsiText, Size);
+    Stream.Read(AnsiText[1], Size);
+    Text := string(AnsiText);
+  end;
+  Create(Text, 1);
+  Stream.Free;
+end;
+
+constructor TXML.Create(const Text: string; BeginPos: LongInt);
+var
+  i, j : LongInt;
+  Flag : (F_BEGIN, F_TAG, F_PARAMS, F_CONTENT, F_END);
+  BeginIndex : LongInt;
+  TextFlag   : Boolean;
+begin
+  TextFlag := False;
+  Flag     := F_BEGIN;
+  i := BeginPos - 1;
+
+  BeginIndex := BeginPos;
+  FContent := '';
+  while i <= Length(Text) do
+  begin
+    Inc(i);
+    case Flag of
+    // waiting for new tag '<...'
+      F_BEGIN :
+        if Text[i] = '<' then
+        begin
+          Flag := F_TAG;
+          BeginIndex := i + 1;
+        end;
+    // waiting for tag name '... ' or '.../' or '...>'
+      F_TAG :
+        begin
+          case Text[i] of
+            '>' : Flag := F_CONTENT;
+            '/' : Flag := F_END;
+            ' ' : Flag := F_PARAMS;
+            '?', '!' :
+              begin
+                Flag := F_BEGIN;
+                continue;
+              end
+          else
+            continue;
+          end;
+          FTag := Trim(Copy(Text, BeginIndex, i - BeginIndex));
+          BeginIndex := i + 1;
+        end;
+    // parse tag parameters
+      F_PARAMS :
+        begin
+          if Text[i] = '"' then
+            TextFlag := not TextFlag;
+          if not TextFlag then
+          begin
+            case Text[i] of
+              '>' : Flag := F_CONTENT;
+              '/' : Flag := F_END;
+            else
+              continue;
+            end;
+            FParams := TXMLParams.Create(Trim(Copy(Text, BeginIndex, i - BeginIndex)));
+            BeginIndex := i + 1;
+          end;
+        end;
+    // parse tag content
+      F_CONTENT :
+        begin
+          case Text[i] of
+            '"' : TextFlag := not TextFlag;
+            '<' :
+              if not TextFlag then
+              begin
+                FContent := FContent + Trim(Copy(Text, BeginIndex, i - BeginIndex));
+              // is new tag or my tag closing?
+                for j := i to Length(Text) do
+                  if Text[j] = '>' then
+                  begin
+                    if Trim(Copy(Text, i + 1, j - i - 1)) <> '/' + FTag then
+                    begin
+                      SetLength(FNode, Length(FNode) + 1);
+                      FNode[Length(FNode) - 1] := TXML.Create(Text, i - 1);
+                      i := i + FNode[Length(FNode) - 1].DataLen;
+                      BeginIndex := i + 1;
+                    end else
+                      Flag := F_END;
+                    break;
+                  end;
+              end
+          end;
+        end;
+    // waiting for close tag
+      F_END :
+        if Text[i] = '>' then
+        begin
+          FDataLen := i - BeginPos;
+          break;
+        end;
+    end;
+  end;
+  FCount := Length(FNode);
+end;
+
+destructor TXML.Destroy;
+var
+  i : LongInt;
+begin
+  for i := 0 to Count - 1 do
+    NodeI[i].Free;
+  Params.Free;
+end;
+
+function TXML.GetNode(const TagName: string): TXML;
+var
+  i : LongInt;
+begin
+  for i := 0 to Count - 1 do
+    if FNode[i].Tag = TagName then
+    begin
+      Result := FNode[i];
+      Exit;
+    end;
+  Result := nil;
+end;
+
+function TXML.GetNodeI(Idx: LongInt): TXML;
+begin
+  Result := FNode[Idx];
+end;
+{$ENDREGION}
+
 {$REGION 'TThread'}
-procedure TThread.SetActive(Value: Boolean);
-begin
-  FActive := Value;
-  if Value then
-    ResumeThread(FHandle)
-  else
-    SuspendThread(FHandle);
-end;
-
-procedure TThread.SetCPUMask(Value: LongInt);
-begin
-  SetThreadAffinityMask(FHandle, Value);
-end;
-
 procedure TThread.Init(Proc: TThreadProc; Param: Pointer; Activate: Boolean);
 var
   Flag : LongWord;
 begin
   FActive := Activate;
+{$IFDEF WINDOWS}
   if FActive then
     Flag := 0
   else
     Flag := 4; // CREATE_SUSPENDED;
-  FHandle := CreateThread(nil, 0, @Proc, Param, Flag, nil);
+  FHandle := CreateThread(nil, 0, Proc, Param, Flag, nil);
+{$ENDIF}
 end;
 
 procedure TThread.Free;
 begin
+{$IFDEF WINDOWS}
   TerminateThread(FHandle, 0);
+{$ENDIF}
+end;
+
+procedure TThread.SetActive(Value: Boolean);
+begin
+  if FActive <> Value then
+  begin
+    FActive := Value;
+  {$IFDEF WINDOWS}
+    if Value then
+      ResumeThread(FHandle)
+    else
+      SuspendThread(FHandle);
+  {$ENDIF}
+  end;
+end;
+
+procedure TThread.SetCPUMask(Value: LongInt);
+begin
+{$IFDEF WINDOWS}
+  SetThreadAffinityMask(FHandle, Value);
+{$ENDIF}
 end;
 
 procedure TThread.Wait(ms: LongWord);
 begin
+{$IFDEF WINDOWS}
   Sleep(ms);
+{$ENDIF}
 end;
 {$ENDREGION}
 
@@ -2180,25 +2583,35 @@ begin
 end;
 
 function LowerCase(const Str: string): string;
+var
+  i : LongInt;
 begin
-  Result := Str; // FIX!
+  Result := Str;
+  for i := 1 to Length(Str) do
+    if AnsiChar(Result[i]) in ['A'..'Z', 'À'..'ß'] then
+      Result[i] := Chr(Ord(Result[i]) + 32);
 end;
 
-function Trim(const Str: string): string;
+function TrimChars(const Str: string; Chars: TCharSet): string;
 var
-  i, j: LongInt;
+  i, j : LongInt;
 begin
   j := Length(Str);
   i := 1;
-  while (i <= j) and (Str[i] <= ' ') do
+  while (i <= j) and (AnsiChar(Str[i]) in Chars) do
     Inc(i);
   if i <= j then
   begin
-    while Str[j] <= ' ' do
+    while AnsiChar(Str[i]) in Chars do
       Dec(j);
     Result := Copy(Str, i, j - i + 1);
   end else
     Result := '';
+end;
+
+function Trim(const Str: string): string;
+begin
+  Result := TrimChars(Str, [#9, #10, #13, #32]);
 end;
 
 function DeleteChars(const Str: string; Chars: TCharSet): string;
@@ -2218,7 +2631,7 @@ end;
 
 function ExtractFileDir(const Path: string): string;
 var
-  i : Integer;
+  i : LongInt;
 begin
   for i := Length(Path) downto 1 do
     if (Path[i] = '\') or (Path[i] = '/') then
@@ -2243,6 +2656,108 @@ begin
   Result.G := G;
   Result.B := B;
   Result.A := A;
+end;
+{$ENDREGION}
+
+// FileSys =====================================================================
+{$REGION 'TFilePack'}
+procedure TFilePack.Init(const PackName: string);
+var
+  Stream   : TStream;
+  AName    : AnsiString;
+  Len      : Byte;
+  i, Count : LongInt;
+begin
+  FName := PackName;
+  Stream := FileSys.Open(PackName);
+  Stream.Read(Count, SizeOf(Count));
+  SetLength(FTable, Count);
+  for i := 0 to Length(FTable) - 1 do
+    with FTable[i] do
+    begin
+      Stream.Read(Pos, SizeOf(Pos));
+      Stream.Read(Size, SizeOf(Size));
+      Stream.Read(Len, SizeOf(Len));
+      SetLength(AName, Len);
+      Stream.Read(AName[1], Len);
+      FileName := string(AName);
+    end;
+  Stream.Free;
+end;
+
+function TFilePack.Open(const FileName: string; out Stream: TStream): Boolean;
+var
+  i : LongInt;
+begin
+  for i := 0 to Length(FTable) - 1 do
+    if FTable[i].FileName = FileName then
+    begin
+      Stream := FileSys.Open(FName);
+      Stream.SetBlock(FTable[i].Pos, FTable[i].Size);
+      Result := True;
+      Exit;
+    end;
+  Result := False;
+end;
+{$ENDREGION}
+
+{$REGION 'TFileSys'}
+procedure TFileSys.Init;
+begin
+  chdir(ExtractFileDir(ParamStr(0)));
+end;
+
+procedure TFileSys.Clear;
+begin
+  FPack := nil;
+end;
+
+procedure TFileSys.Add(const PackName: string);
+begin
+  SetLength(FPack, Length(FPack) + 1);
+  FPack[Length(FPack) - 1].Init(PackName);
+end;
+
+procedure TFileSys.Del(const PackName: string);
+var
+  i : LongInt;
+begin
+  for i := 0 to Length(FPack) - 1 do
+    if FPack[i].Name = PackName then
+    begin
+      FPack[i] := FPack[Length(FPack) - 1];
+      SetLength(FPack, Length(FPack) - 1);
+    end;
+end;
+
+function TFileSys.Open(const FileName: string; RW: Boolean): TStream;
+var
+  i : LongInt;
+begin
+  if not RW then
+    for i := 0 to Length(FPack) - 1 do
+      if FPack[i].Open(FileName, Result) then
+        Exit;
+
+  FileMode := 2;
+  AssignFile(Result.F, FileName);
+{$I-}
+  if RW then
+  begin
+    FileMode := 1;
+    Rewrite(Result.F, 1)
+  end else
+  begin
+    FileMode := 0;
+    Reset(Result.F, 1);
+  end;
+{$I+}
+  if IOResult = 0 then
+  begin
+    Result.FSize  := FileSize(Result.F);
+    Result.FPos   := 0;
+  end else
+    Assert('Can''t open "' + FileName + '"');
 end;
 {$ENDREGION}
 
@@ -2886,19 +3401,16 @@ begin
   if ResManager.Add(FileName, ResIdx) then
   begin
     Stream.Init(FileName);
-    if Stream.Valid then
-    begin
-      Stream.Read(Header, SizeOf(Header));
-      with Header, Fmt do
-        if (wBitsPerSample = 16) and (nChannels = 1) and (nSamplesPerSec = 44100) then
-          with ResManager.Items[ResIdx] do
-          begin
-            Length := Header.DLen div nBlockAlign;
-            Data   := GetMemory(DLen);
-            Stream.Read(Data^, DLen);
-          end;
-      Stream.Free;
-    end;
+    Stream.Read(Header, SizeOf(Header));
+    with Header, Fmt do
+      if (wBitsPerSample = 16) and (nChannels = 1) and (nSamplesPerSec = 44100) then
+        with ResManager.Items[ResIdx] do
+        begin
+          Length := Header.DLen div nBlockAlign;
+          Data   := GetMemory(DLen);
+          Stream.Read(Data^, DLen);
+        end;
+    Stream.Free;
   end;
   Frequency := 44100;
   Volume    := 100;
@@ -3111,16 +3623,22 @@ begin
   gl.AlphaFunc(GL_GREATER, 0.0);
   gl.Disable(GL_DEPTH_TEST);
   gl.ColorMask(True, True, True, False);
-  Assert(gl.GetString(GL_RENDERER) = 'GDI Generic', 'Update your video card driver!');
-{
-  Writeln('GL_VENDOR   : ', gl.GetString(GL_VENDOR));
-  Writeln('GL_RENDERER : ', gl.GetString(GL_RENDERER));
-  Writeln('GL_VERSION  : ', gl.GetString(GL_VERSION));
-}
-//  SBuffer[rsMultiTex] := gl.
+  FVendor   := string(gl.GetString(GL_VENDOR));
+  FRenderer := string(gl.GetString(GL_RENDERER));
+  FVersion  := string(gl.GetString(GL_VERSION));
+
+  Assert('Update your video card driver!', FRenderer = 'GDI Generic');
+
+
+  SBuffer[rsMT]   := @gl.ActiveTexture <> nil;
+  SBuffer[rsVBO]  := @gl.BindBuffer <> nil;
+//  SBuffer[rsFrameTex]  := @gl. <> nil;
+  SBuffer[rsGLSL] := @gl.CreateProgram <> nil;
 
 // Get number of processors
+{$IFDEF WINDOWS}
   GetProcessAffinityMask(GetCurrentProcess, pm, sm);
+{$ENDIF}
   FCPUCount := 0;
   while pm > 0 do
   begin
@@ -3187,17 +3705,9 @@ begin
     gl.Disable(GL_CULL_FACE);
 end;
 
-function TRender.Support(SupportFlags: TRenderSupportFlag): Boolean;
-var
-  i : TRenderSupport;
+function TRender.Support(RenderSupport: TRenderSupport): Boolean;
 begin
-  for i := Low(TRenderSupport) to High(TRenderSupport) do
-    if (i in SupportFlags) and (not SBuffer[i]) then
-    begin
-      Result := False;
-      Exit;
-    end;
-  Result := True;
+  Result := SBuffer[RenderSupport];
 end;
 
 procedure TRender.Update;
@@ -3313,77 +3823,75 @@ begin
   if ResManager.Add(FileName, ResIdx) then
   begin
     Stream.Init(FileName);
-    if Stream.Valid then
+
+    Stream.Read(DDS, SizeOf(DDS));
+    Data := GetMemory(DDS.POLSize);
+    with ResManager.Items[ResIdx] do
     begin
-      Stream.Read(DDS, SizeOf(DDS));
-      Data := GetMemory(DDS.POLSize);
-      with ResManager.Items[ResIdx] do
-      begin
-        Width  := DDS.Width;
-        Height := DDS.Height;
-        gl.GenTextures(1, @ID);
-        gl.BindTexture(GL_TEXTURE_2D, ID);
-      end;
-    // Select OpenGL texture format
-      f := GL_RGB8;
-      c := GL_BGR;
-      with DDS do
-      begin
-        if pfFlags and DDPF_FOURCC = DDPF_FOURCC then
-          case pfFourCC[3] of
-            '1' : f := GL_COMPRESSED_RGBA_S3TC_DXT1;
-            '3' : f := GL_COMPRESSED_RGBA_S3TC_DXT3;
-            '5' : f := GL_COMPRESSED_RGBA_S3TC_DXT5;
-          end
-        else
-          if pfFlags and DDPF_ALPHAPIXELS = DDPF_ALPHAPIXELS then
+      Width  := DDS.Width;
+      Height := DDS.Height;
+      gl.GenTextures(1, @ID);
+      gl.BindTexture(GL_TEXTURE_2D, ID);
+    end;
+  // Select OpenGL texture format
+    f := GL_RGB8;
+    c := GL_BGR;
+    with DDS do
+    begin
+      if pfFlags and DDPF_FOURCC = DDPF_FOURCC then
+        case pfFourCC[3] of
+          '1' : f := GL_COMPRESSED_RGBA_S3TC_DXT1;
+          '3' : f := GL_COMPRESSED_RGBA_S3TC_DXT3;
+          '5' : f := GL_COMPRESSED_RGBA_S3TC_DXT5;
+        end
+      else
+        if pfFlags and DDPF_ALPHAPIXELS = DDPF_ALPHAPIXELS then
+        begin
+          f := GL_RGBA8;
+          c := GL_BGRA;
+        end;
+
+      if MipMapCount = 0 then
+        MipMapCount := 1
+      else
+        for i := 0 to MipMapCount - 1 do
+          if (Width shr i < 4) or (Height shr i < 4) then
           begin
-            f := GL_RGBA8;
-            c := GL_BGRA;
+            MipMapCount := i;
+            break;
           end;
 
-        if MipMapCount = 0 then
-          MipMapCount := 1
-        else
-          for i := 0 to MipMapCount - 1 do
-            if (Width shr i < 4) or (Height shr i < 4) then
-            begin
-              MipMapCount := i;
-              break;
-            end;
-
-        case f of
-          GL_RGB8  : pfRGBbpp := 24;
-          GL_RGBA8 : pfRGBbpp := 32;
-          GL_COMPRESSED_RGBA_S3TC_DXT1 : pfRGBbpp := 4;
-          GL_COMPRESSED_RGBA_S3TC_DXT3,
-          GL_COMPRESSED_RGBA_S3TC_DXT5 : pfRGBbpp := 8;
-        end;
-
-        for i := 0 to MipMapCount - 1 do
-        begin
-          w := Width shr i;
-          h := Height shr i;
-          Size := (w * h * pfRGBbpp) div 8;
-          Stream.Read(Data^, Size);
-          if pfFlags and DDPF_FOURCC = DDPF_FOURCC then
-            gl.CompressedTexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, Size, Data)
-          else
-            gl.TexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, c, GL_UNSIGNED_BYTE, Data);
-        end;
-        FreeMemory(Data);
-      // Filter
-        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        if MipMapCount > 1 then
-        begin
-          gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-          gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, TGLConst(MipMapCount - 1));
-        end else
-          gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+      case f of
+        GL_RGB8  : pfRGBbpp := 24;
+        GL_RGBA8 : pfRGBbpp := 32;
+        GL_COMPRESSED_RGBA_S3TC_DXT1 : pfRGBbpp := 4;
+        GL_COMPRESSED_RGBA_S3TC_DXT3,
+        GL_COMPRESSED_RGBA_S3TC_DXT5 : pfRGBbpp := 8;
       end;
+
+      for i := 0 to MipMapCount - 1 do
+      begin
+        w := Width shr i;
+        h := Height shr i;
+        Size := (w * h * pfRGBbpp) div 8;
+        Stream.Read(Data^, Size);
+        if pfFlags and DDPF_FOURCC = DDPF_FOURCC then
+          gl.CompressedTexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, Size, Data)
+        else
+          gl.TexImage2D(GL_TEXTURE_2D, i, f, w, h, 0, c, GL_UNSIGNED_BYTE, Data);
+      end;
+      FreeMemory(Data);
+    // Filter
+      gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+      if MipMapCount > 1 then
+      begin
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, TGLConst(MipMapCount - 1));
+      end else
+        gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     end;
-    Stream.Free;
   end;
+  Stream.Free;
 
   with ResManager.Items[ResIdx] do
   begin
@@ -3406,13 +3914,173 @@ end;
 
 procedure TTexture.Enable(Channel: LongInt);
 begin
-  if ResManager.Active[Channel] <> ResIdx then
+  if not (Channel in [0..15]) then
+    Assert('Incorrect texture channel number (' + Conv(Channel) + ') ' + ResManager.Items[ResIdx].Name);
+  if ResManager.Active[TResActive(Channel)] <> ResIdx then
   begin
-    if @gl.ActiveTexture <> nil then
+    if Render.Support(rsMT) then
       gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + Channel));
     gl.BindTexture(GL_TEXTURE_2D, ResManager.Items[ResIdx].ID);
-    ResManager.Active[Channel] := ResIdx;
+    ResManager.Active[TResActive(Channel)] := ResIdx;
   end;
+end;
+{$ENDREGION}
+
+// Shader ======================================================================
+{$REGION 'TShaderUniform'}
+procedure TShaderUniform.Init(ShaderID: LongWord; UniformType: TShaderUniformType; const UName: string);
+begin
+  FID   := gl.GetUniformLocation(ShaderID, PAnsiChar(AnsiString(UName)));
+  FName := UName;
+  FType := UniformType;
+end;
+
+procedure TShaderUniform.Value(const Data; Count: LongInt);
+begin
+  case FType of
+    utInt   : gl.Uniform1iv(FID, Count, @Data);
+    utFloat : gl.Uniform1fv(FID, Count, @Data);
+    utVec2  : gl.Uniform2fv(FID, Count, @Data);
+    utVec3  : gl.Uniform3fv(FID, Count, @Data);
+    utVec4  : gl.Uniform4fv(FID, Count, @Data);
+    utMat3  : gl.UniformMatrix3fv(FID, Count, False, @Data);
+    utMat4  : gl.UniformMatrix4fv(FID, Count, False, @Data);
+  end;
+end;
+{$ENDREGION}
+
+{$REGION 'TShaderAttrib'}
+procedure TShaderAttrib.Init(ShaderID: LongWord; AttribType: TShaderAttribType; const AName: string);
+begin
+  FID   := gl.GetAttribLocation(ShaderID, PAnsiChar(AnsiString(AName)));
+  FName := AName;
+  FType := AttribType;
+end;
+
+procedure TShaderAttrib.Value(Stride: LongInt; const Data);
+begin
+  gl.VertexAttribPointer(FID, Byte(FType), GL_FLOAT, False, Stride, @Data);
+end;
+{$ENDREGION}
+
+{$REGION 'TShader'}
+procedure TShader.Init(const FileName, Defines: string);
+
+  procedure InfoLog(Obj: LongWord; IsProgram: Boolean);
+  var
+    LogBuf : AnsiString;
+    LogLen : LongInt;
+  begin
+    if IsProgram then
+      gl.GetProgramiv(Obj, GL_INFO_LOG_LENGTH, @LogLen)
+    else
+      gl.GetShaderiv(Obj, GL_INFO_LOG_LENGTH, @LogLen);
+
+    SetLength(LogBuf, LogLen);
+
+    if IsProgram then
+      gl.GetProgramInfoLog(Obj, LogLen, LogLen, PAnsiChar(LogBuf))
+    else
+      gl.GetShaderInfoLog(Obj, LogLen, LogLen, PAnsiChar(LogBuf));
+    Assert(FileName + CRLF + string(LogBuf));
+  end;
+
+  procedure Attach(ShaderType: TGLConst; const CSource: AnsiString);
+  var
+    Obj : LongWord;
+    SourcePtr  : PAnsiChar;
+    SourceSize : LongInt;
+    Status : LongInt;
+  begin
+    Obj := gl.CreateShader(ShaderType);
+
+    SourcePtr  := PAnsiChar(CSource);
+    SourceSize := Length(CSource);
+
+    gl.ShaderSource(Obj, 1, @SourcePtr, @SourceSize);
+    gl.CompileShader(Obj);
+    gl.GetShaderiv(Obj, GL_COMPILE_STATUS, @Status);
+    if Status <> 1 then
+      InfoLog(Obj, False);
+    gl.AttachShader(FID, Obj);
+    gl.DeleteShader(Obj);
+  end;
+
+var
+  Status : LongInt;
+  Stream : TStream;
+  Source  : AnsiString;
+  CSource : AnsiString;
+begin
+  if not Render.Support(rsGLSL) then
+    Assert('GLSL shaders are not supported');
+
+  if ResManager.Add(FileName + '*' + Defines, ResIdx) then
+  begin
+    FID := gl.CreateProgram();
+  // Reading
+    Stream.Init(FileName);
+    SetLength(Source, Stream.Size);
+    Stream.Read(Source[1], Stream.Size);
+    Stream.Free;
+  // Compiling
+    CSource := AnsiString(Defines + CRLF + '#define VERTEX' + CRLF + string(Source));
+    Attach(GL_VERTEX_SHADER, CSource);
+    CSource := AnsiString(Defines + CRLF + '#define FRAGMENT' + CRLF + string(Source));
+    Attach(GL_FRAGMENT_SHADER, CSource);
+  // Linking
+    gl.LinkProgram(FID);
+    gl.GetProgramiv(FID, GL_LINK_STATUS, @Status);
+    if Status <> 1 then
+      InfoLog(FID, True);
+    ResManager.Items[ResIdx].ID := FID;
+  end else // already loaded
+    FID := ResManager.Items[ResIdx].ID;
+end;
+
+procedure TShader.Free;
+begin
+  gl.DeleteProgram(FID);
+end;
+
+function TShader.Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
+var
+  i : LongInt;
+begin
+  for i := 0 to Length(FUniform) - 1 do
+    if FUniform[i].Name = UName then
+    begin
+      Result := FUniform[i];
+      Exit;
+    end;
+  Result.Init(FID, UniformType, UName);
+  SetLength(FUniform, Length(FUniform) + 1);
+  FUniform[Length(FUniform) - 1] := Result;
+end;
+
+function TShader.Attrib(AttribType: TShaderAttribType; const AName: string): TShaderAttrib;
+var
+  i : LongInt;
+begin
+  for i := 0 to Length(FAttrib) - 1 do
+    if FAttrib[i].Name = AName then
+    begin
+      Result := FAttrib[i];
+      Exit;
+    end;
+  Result.Init(FID, AttribType, AName);
+  SetLength(FAttrib, Length(FAttrib) + 1);
+  FAttrib[Length(FAttrib) - 1] := Result;
+end;
+
+procedure TShader.Enable;
+begin
+  gl.UseProgram(FID);
+end;
+
+procedure TShader.Disable;
+begin
+  gl.UseProgram(0);
 end;
 {$ENDREGION}
 
@@ -3631,40 +4299,76 @@ end;
 {$REGION 'TMeshBuffer'}
 procedure TMeshBuffer.Init(DataType: TDataType; Size: LongInt; Data: Pointer);
 begin
-  gl.GenBuffers(1, @ID);
-  if DataType = dtVertex then
-    DType := GL_ARRAY_BUFFER
-  else
+  if DataType = dtIndex then
+  begin
     DType := GL_ELEMENT_ARRAY_BUFFER;
-  Enable;
-  gl.BufferData(DType, Size, Data, GL_STATIC_DRAW);
-  Disable;
+    RType := Ord(raIBuffer);
+  end else
+  begin
+    DType := GL_ARRAY_BUFFER;
+    RType := Ord(raVBuffer);
+  end;
+
+  if Render.Support(rsVBO) then
+  begin
+    gl.GenBuffers(1, @ID);
+    Enable;
+    gl.BufferData(DType, Size, Data, GL_STATIC_DRAW);
+    Disable;
+    FData := nil;
+  end else
+  begin
+    FData := GetMemory(Size);
+    if Data <> nil then
+      Move(Data^, FData^, Size);
+  end;
+  ResManager.Add(Conv(LongWord(Pointer(@Self))), ResIdx);
 end;
 
 procedure TMeshBuffer.Free;
 begin
-  gl.DeleteBuffers(1, @ID);
+  if FData = nil then
+    FreeMemory(FData)
+  else
+    gl.DeleteBuffers(1, @ID);
 end;
 
 procedure TMeshBuffer.SetData(Offset, Size: LongInt; Data: Pointer);
 var
   p : PByteArray;
 begin
-  Enable;
-  P := gl.MapBuffer(DType, GL_WRITE_ONLY);
+  if FData = nil then
+  begin
+    Enable;
+    P := gl.MapBuffer(DType, GL_WRITE_ONLY);
+  end else
+    P := FData;
   Move(Data^, P[Offset], Size);
-  gl.UnmapBuffer(DType);
-  Disable;
+  if FData = nil then
+  begin
+    gl.UnmapBuffer(DType);
+    Disable;
+  end;
 end;
 
 procedure TMeshBuffer.Enable;
 begin
-  gl.BindBuffer(DType, ID);
+  if ResManager.Active[TResActive(RType)] <> ResIdx then
+  begin
+    if FData = nil then
+      gl.BindBuffer(DType, ID);
+    ResManager.Active[TResActive(RType)] := ResIdx;
+  end;
 end;
 
 procedure TMeshBuffer.Disable;
 begin
-  gl.BindBuffer(DType, 0);
+  if ResManager.Active[TResActive(RType)] <> -1 then
+  begin
+    if FData = nil then
+      gl.BindBuffer(DType, 0);
+    ResManager.Active[TResActive(RType)] := -1;
+  end;
 end;
 {$ENDREGION}
 
@@ -3673,10 +4377,10 @@ procedure TMesh.Draw;
 begin
   Buffer[dtIndex].Enable;
   Buffer[dtVertex].Disable;
-{
-  gl.VertexPointer(3, GL_FLOAT, SizeOf(TVec3f), @Map[0, 0]);
-  gl.DrawElements(GL_TRIANGLES, sqr(LOD_SIZE - 1) * 2 * 3, GL_UNSIGNED_INT, @Face[0]);
-}
+
+//  gl.VertexPointer(3, GL_FLOAT, SizeOf(TVec3f), @Map[0, 0]);
+//  gl.DrawElements(GL_TRIANGLES, sqr(LOD_SIZE - 1) * 2 * 3, GL_UNSIGNED_INT, @Face[0]);
+
   Buffer[dtVertex].Disable;
   Buffer[dtIndex].Disable;
 end;
@@ -3762,7 +4466,32 @@ const
     'glBufferDataARB',
     'glBufferSubDataARB',
     'glMapBufferARB',
-    'glUnmapBufferARB'
+    'glUnmapBufferARB',
+    'glGetProgramiv',
+    'glCreateProgram',
+    'glDeleteProgram',
+    'glLinkProgram',
+    'glUseProgram',
+    'glGetProgramInfoLog',
+    'glGetShaderiv',
+    'glCreateShader',
+    'glDeleteShader',
+    'glShaderSource',
+    'glAttachShader',
+    'glCompileShader',
+    'glGetShaderInfoLog',
+    'glGetUniformLocation',
+    'glUniform1iv',
+    'glUniform1fv',
+    'glUniform2fv',
+    'glUniform3fv',
+    'glUniform4fv',
+    'glUniformMatrix3fv',
+    'glUniformMatrix4fv',
+    'glGetAttribLocation',
+    'glEnableVertexAttribArray',
+    'glDisableVertexAttribArray',
+    'glVertexAttribPointer'
   );
 var
   i    : LongInt;
@@ -3799,8 +4528,8 @@ end;
 {$REGION 'CoreX'}
 procedure Init;
 begin
+  FileSys.Init;
   ResManager.Init;
-  chdir(ExtractFileDir(ParamStr(0)));
   Screen.Init;
   Input.Init;
   Sound.Init;
@@ -3811,7 +4540,6 @@ begin
   Sound.Free;
   Input.Free;
   Screen.Free;
-//  ResManager.Free;
 end;
 
 procedure Start(PInit, PFree, PRender: TCoreProc);
@@ -3836,12 +4564,12 @@ begin
   Screen.FQuit := True;
 end;
 
-procedure Assert(Flag: Boolean; const Error: AnsiString);
+procedure Assert(const Error: string; Flag: Boolean);
 begin
   if Flag then
   begin
     {$IFDEF WINDOWS}
-      MessageBoxA(Screen.Handle, PAnsiChar(Error), 'Fatal Error', 16);
+      MessageBoxA(Screen.Handle, PAnsiChar(AnsiString(Error)), 'Fatal Error', 16);
     {$ENDIF}
     Halt;
   end;
