@@ -2018,7 +2018,6 @@ end;
 
 procedure TStream.Init(const FileName: string; RW: Boolean);
 begin
-  FBPos := 0;
   Self  := FileSys.Open(FileName, RW);
   SType := stFile;
 end;
@@ -3254,7 +3253,6 @@ procedure TInput.SetState(InputKey: TInputKey; Value: Boolean);
 begin
   if FDown[InputKey] and (not Value) then
   begin
-    Writeln(Ord(InputKey));
     FHit[InputKey] := True;
     FLastKey := InputKey;
   end;
@@ -4042,7 +4040,8 @@ end;
 
 procedure TShader.Free;
 begin
-  gl.DeleteProgram(FID);
+  if ResManager.Delete(ResIdx) then
+    gl.DeleteProgram(FID);
 end;
 
 function TShader.Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
