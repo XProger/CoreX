@@ -19,7 +19,7 @@ var
 procedure onInit;
 begin
   Suzaku.Load('media/xrpg/suzaku.spr');
-  Suzaku.Pos := Vec2f(400, 300);
+  Suzaku.Pos := Vec2f(0, 0);
 end;
 
 procedure onFree;

@@ -1,10 +1,10 @@
 ﻿	<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 		<PropertyGroup>
-			<ProjectGuid>{53C809CB-1311-4714-906C-C8863352F098}</ProjectGuid>
-			<MainSource>CoreX_Demos.dpr</MainSource>
+			<ProjectGuid>{5260C8CA-9923-4B62-8016-48EBDCAD2312}</ProjectGuid>
+			<ProjectVersion>12.0</ProjectVersion>
+			<MainSource>xpk.dpr</MainSource>
 			<Config Condition="'$(Config)'==''">Debug</Config>
 			<DCC_DCCCompiler>DCC32</DCC_DCCCompiler>
-			<ProjectVersion>12.0</ProjectVersion>
 		</PropertyGroup>
 		<PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
 			<Base>true</Base>
@@ -20,16 +20,14 @@
 			<Base>true</Base>
 		</PropertyGroup>
 		<PropertyGroup Condition="'$(Base)'!=''">
-			<DCC_PEFlags>1</DCC_PEFlags>
-			<DCC_DependencyCheckOutputName>..\CoreX_Demos.exe</DCC_DependencyCheckOutputName>
+			<DCC_DependencyCheckOutputName>..\xpk.exe</DCC_DependencyCheckOutputName>
 			<DCC_ImageBase>00400000</DCC_ImageBase>
-			<DCC_Platform>x86</DCC_Platform>
 			<DCC_ExeOutput>..\</DCC_ExeOutput>
-			<DCC_UnitSearchPath>..\;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
-			<DCC_K>false</DCC_K>
+			<DCC_UnitAlias>WinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;$(DCC_UnitAlias)</DCC_UnitAlias>
+			<DCC_Platform>x86</DCC_Platform>
 			<DCC_N>false</DCC_N>
 			<DCC_S>false</DCC_S>
-			<DCC_DcuOutput>tmp</DCC_DcuOutput>
+			<DCC_K>false</DCC_K>
 			<DCC_E>false</DCC_E>
 			<DCC_F>false</DCC_F>
 		</PropertyGroup>
@@ -43,12 +41,9 @@
 			<DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
 		</PropertyGroup>
 		<ItemGroup>
-			<DelphiCompile Include="CoreX_Demos.dpr">
+			<DelphiCompile Include="xpk.dpr">
 				<MainSource>MainSource</MainSource>
 			</DelphiCompile>
-			<DCCReference Include="..\CoreX.pas"/>
-			<DCCReference Include="Demos.pas"/>
-			<DCCReference Include="SpriteAnim.pas"/>
 			<BuildConfiguration Include="Base">
 				<Key>Base</Key>
 			</BuildConfiguration>
@@ -64,12 +59,9 @@
 		<Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
 		<ProjectExtensions>
 			<Borland.Personality>Delphi.Personality.12</Borland.Personality>
-			<Borland.ProjectType>VCLApplication</Borland.ProjectType>
+			<Borland.ProjectType/>
 			<BorlandProject>
 				<Delphi.Personality>
-					<Source>
-						<Source Name="MainSource">CoreX_Demos.dpr</Source>
-					</Source>
 					<Parameters>
 						<Parameters Name="UseLauncher">False</Parameters>
 						<Parameters Name="LoadAllSymbols">True</Parameters>
@@ -102,6 +94,9 @@
 						<VersionInfoKeys Name="ProductVersion">1.0.0.0</VersionInfoKeys>
 						<VersionInfoKeys Name="Comments"/>
 					</VersionInfoKeys>
+					<Source>
+						<Source Name="MainSource">xpk.dpr</Source>
+					</Source>
 				</Delphi.Personality>
 			</BorlandProject>
 			<ProjectFileVersion>12</ProjectFileVersion>
