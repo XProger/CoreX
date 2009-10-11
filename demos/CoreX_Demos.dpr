@@ -1,12 +1,11 @@
 program CoreX_Demos;
 
-{$APPTYPE CONSOLE}
-
 uses
-  CoreX,
-  Demos,
-  SpriteAnim,
-  GameRPG;
+  CoreX in '..\CoreX.pas',
+  Demos in 'Demos.pas',
+  SpriteAnim in 'SpriteAnim.pas',
+  GameRPG in 'GameRPG.pas',
+  Raytrace in 'Raytrace.pas';
 
 {$IF DEFINED(WINDOWS) or DEFINED(WIN32)}
   {$APPTYPE CONSOLE}

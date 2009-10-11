@@ -49,7 +49,7 @@ procedure onRender;
 begin
   UnitReg[UnitIdx][upRender];
 // Next demo
-  if Input.Hit[KK_SPACE] then
+  if Input.Hit[KK_ENTER] then
     SetUnit(UnitIdx + 1);
 // Close application
   if Input.Hit[KK_ESC] then

@@ -1093,7 +1093,7 @@ const
       $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
       $41, $42, $43, $44, $45, $46, $47, $48, $49, $4A, $4B, $4C, $4D, $4E, $4F, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $5A,
       $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A, $7B,
-      $1B, $03, $08, $09, $10, $11, $12, $20, $21, $22, $23, $24, $25, $26, $27, $28, $2D, $2E);
+      $1B, $0D, $08, $09, $10, $11, $12, $20, $21, $22, $23, $24, $25, $26, $27, $28, $2D, $2E);
 
   SND_FREQ     = 44100;
   SND_BPP      = 16;
@@ -2018,9 +2018,9 @@ end;
 
 procedure TStream.Init(const FileName: string; RW: Boolean);
 begin
-  SType := stFile;
   FBPos := 0;
   Self  := FileSys.Open(FileName, RW);
+  SType := stFile;
 end;
 
 procedure TStream.Free;
@@ -2602,7 +2602,7 @@ begin
     Inc(i);
   if i <= j then
   begin
-    while AnsiChar(Str[i]) in Chars do
+    while AnsiChar(Str[j]) in Chars do
       Dec(j);
     Result := Copy(Str, i, j - i + 1);
   end else
@@ -2669,18 +2669,18 @@ var
   i, Count : LongInt;
 begin
   FName := PackName;
-  Stream := FileSys.Open(PackName);
+  Stream.Init(PackName);
   Stream.Read(Count, SizeOf(Count));
   SetLength(FTable, Count);
   for i := 0 to Length(FTable) - 1 do
     with FTable[i] do
     begin
-      Stream.Read(Pos, SizeOf(Pos));
-      Stream.Read(Size, SizeOf(Size));
       Stream.Read(Len, SizeOf(Len));
       SetLength(AName, Len);
       Stream.Read(AName[1], Len);
       FileName := string(AName);
+      Stream.Read(Pos, SizeOf(Pos));
+      Stream.Read(Size, SizeOf(Size));
     end;
   Stream.Free;
 end;
@@ -2692,7 +2692,7 @@ begin
   for i := 0 to Length(FTable) - 1 do
     if FTable[i].FileName = FileName then
     begin
-      Stream := FileSys.Open(FName);
+      Stream.Init(FName);
       Stream.SetBlock(FTable[i].Pos, FTable[i].Size);
       Result := True;
       Exit;
@@ -2754,8 +2754,9 @@ begin
 {$I+}
   if IOResult = 0 then
   begin
-    Result.FSize  := FileSize(Result.F);
-    Result.FPos   := 0;
+    Result.FSize := FileSize(Result.F);
+    Result.FPos  := 0;
+    Result.FBPos := 0;
   end else
     Assert('Can''t open "' + FileName + '"');
 end;
@@ -3251,12 +3252,13 @@ end;
 
 procedure TInput.SetState(InputKey: TInputKey; Value: Boolean);
 begin
-  FDown[InputKey] := Value;
-  if (not Value) and (InputKey <> KK_NONE) then
+  if FDown[InputKey] and (not Value) then
   begin
+    Writeln(Ord(InputKey));
     FHit[InputKey] := True;
     FLastKey := InputKey;
   end;
+  FDown[InputKey] := Value;
 end;
 
 procedure TInput.SetCapture(Value: Boolean);
