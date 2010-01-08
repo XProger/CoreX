@@ -43,6 +43,8 @@ type
     function Normal: TVec2f;
     function Dist(const v: TVec2f): Single;
     function Lerp(const v: TVec2f; t: Single): TVec2f;
+    function Min(const v: TVec2f): TVec2f;
+    function Max(const v: TVec2f): TVec2f;
     function Clamp(const Min, Max: TVec2f): TVec2f;
     function Rotate(Angle: Single): TVec2f;
     function Angle(const v: TVec2f): Single;
@@ -66,19 +68,47 @@ type
     function Normal: TVec3f;
     function Dist(const v: TVec3f): Single;
     function Lerp(const v: TVec3f; t: Single): TVec3f;
+    function Min(const v: TVec3f): TVec3f;
+    function Max(const v: TVec3f): TVec3f;
     function Clamp(const Min, Max: TVec3f): TVec3f;
     function Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
     function Angle(const v: TVec3f): Single;
   end;
 
-  TVec4f = record
+  TVec4f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y, z, w : Single;
+  {$IFNDEF FPC}
+    class operator Equal(const a, b: TVec4f): Boolean;
+    class operator Add(const a, b: TVec4f): TVec4f;
+    class operator Subtract(const a, b: TVec4f): TVec4f;
+    class operator Multiply(const a, b: TVec4f): TVec4f;
+    class operator Multiply(const v: TVec4f; x: Single): TVec4f;
+  {$ENDIF}
+  end;
+
+  TQuat = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
+    x, y, z, w : Single;
+  {$IFNDEF FPC}
+    class operator Equal(const q1, q2: TQuat): Boolean;
+    class operator Add(const q1, q2: TQuat): TQuat;
+    class operator Subtract(const q1, q2: TQuat): TQuat;
+    class operator Multiply(const q: TQuat; x: Single): TQuat;
+    class operator Multiply(const q1, q2: TQuat): TQuat;
+    class operator Multiply(const q: TQuat; const v: TVec3f): TVec3f;
+  {$ENDIF}
+    function Invert: TQuat; inline;
+    function Lerp(const q: TQuat; t: Single): TQuat;
+    function Dot(const q: TQuat): Single; inline;
+    function Normal: TQuat;
+    function Euler: TVec3f;
   end;
 
   TMat4f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
   private
     function  GetPos: TVec3f;
     procedure SetPos(const v: TVec3f);
+    function  GetRot: TQuat;
+    procedure SetRot(const q: TQuat);
   public
     e00, e10, e20, e30,
     e01, e11, e21, e31,
@@ -94,7 +124,6 @@ type
     function Det: Single;
     function Inverse: TMat4f;
     function Transpose: TMat4f;
-    function FromAxisAngle(Angle: Single; const Axis: TVec3f): TMat4f;
     procedure Translate(const v: TVec3f);
     procedure Rotate(Angle: Single; const Axis: TVec3f);
     procedure Scale(const v: TVec3f);
@@ -102,6 +131,7 @@ type
     procedure Frustum(Left, Right, Bottom, Top, ZNear, ZFar: Single);
     procedure Perspective(FOV, Aspect, ZNear, ZFar: Single);
     property Pos: TVec3f read GetPos write SetPos;
+    property Rot: TQuat read GetRot write SetRot;
   end;
 
 {$IFDEF FPC}
@@ -117,6 +147,19 @@ type
   operator - (const a, b: TVec3f): TVec3f;
   operator * (const a, b: TVec3f): TVec3f;
   operator * (const v: TVec3f; x: Single): TVec3f;
+// TVec4f
+  operator = (const a, b: TVec4f): Boolean;
+  operator + (const a, b: TVec4f): TVec4f;
+  operator - (const a, b: TVec4f): TVec4f;
+  operator * (const a, b: TVec4f): TVec4f;
+  operator * (const v: TVec4f; x: Single): TVec4f;
+// TQuat
+  operator = (const q1, q2: TQuat): Boolean;
+  operator + (const q1, q2: TQuat): TQuat;
+  operator - (const q1, q2: TQuat): TQuat;
+  operator * (const q: TQuat; x: Single): TQuat;
+  operator * (const q1, q2: TQuat): TQuat;
+  operator * (const q: TQuat; const v: TVec3f): TVec3f;
 // TMat4f
   operator + (const a, b: TMat4f): TMat4f;
   operator * (const a, b: TMat4f): TMat4f;
@@ -129,10 +172,16 @@ const
   EPS     = 1.E-05;
   deg2rad = pi / 180;
   rad2deg = 180 / pi;
+  NullVec2f : TVec2f = (x: 0; y: 0);
+  NullVec3f : TVec3f = (x: 0; y: 0; z: 0);
+  NullVec4f : TVec4f = (x: 0; y: 0; z: 0; w: 0);
 
   function Vec2f(x, y: Single): TVec2f; inline;
   function Vec3f(x, y, z: Single): TVec3f; inline;
   function Vec4f(x, y, z, w: Single): TVec4f; inline;
+  function Quat(x, y, z, w: Single): TQuat; overload; inline;
+  function Quat(Angle: Single; const Axis: TVec3f): TQuat; overload;
+  function Mat4f(Angle: Single; const Axis: TVec3f): TMat4f;
   function Min(x, y: LongInt): LongInt; overload; inline;
   function Min(x, y: Single): Single; overload; inline;
   function Max(x, y: LongInt): LongInt; overload; inline;
@@ -278,6 +327,29 @@ type
     procedure Wait(ms: LongWord = 0); // WTF! ???
     property Active: Boolean read FActive write SetActive;
     property CPUMask: LongInt write SetCPUMask;
+  end;
+
+{ TList }
+  TListCompareFunc = function (Item1, Item2: Pointer): LongInt;
+
+  TList = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
+    procedure Init(Capacity: LongInt = 1);
+    procedure Free(FreeClass: Boolean = False);
+  private
+    FItems    : array of Pointer;
+    FCount    : LongInt;
+    FCapacity : LongInt;
+    procedure BoundsCheck(Index: LongInt);
+    function GetItem(Index: LongInt): Pointer; inline;
+    procedure SetItem(Index: LongInt; Value: Pointer); inline;
+  public
+    function IndexOf(Item: Pointer): LongInt;
+    function Add(Item: Pointer): LongInt;
+    procedure Delete(Index: LongInt; FreeClass: Boolean = False);
+    procedure Insert(Index: LongInt; Item: Pointer);
+    procedure Sort(CompareFunc: TListCompareFunc);
+    property Count: LongInt read FCount;
+    property Items[Index: LongInt]: Pointer read GetItem write SetItem; default;
   end;
 
   function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
@@ -578,17 +650,23 @@ type
     DepthFunc      : procedure (func: TGLConst); stdcall;
     StencilOp      : procedure (fail, zfail, zpass: TGLConst); stdcall;
     Lightfv        : procedure (light, pname: TGLConst; params: Pointer); stdcall;
+    Materialfv     : procedure (face, pname: TGLConst; params: Pointer); stdcall;
     Viewport       : procedure (x, y, width, height: LongInt); stdcall;
     Beginp         : procedure (mode: TGLConst); stdcall;
     Endp           : procedure;
     LineWidth      : procedure (width: Single); stdcall;
-    Color4ub       : procedure (r, g, b, a: Byte); stdcall;
+    Color3f        : procedure (r, g, b: Single); stdcall;
+    Color3fv       : procedure (const rgb: TVec3f); stdcall;
+    Color4f        : procedure (r, g, b, a: Single); stdcall;
+    Color4fv       : procedure (const rgba: TVec4f); stdcall;
     Vertex2f       : procedure (x, y: Single); stdcall;
-    Vertex2fv      : procedure (xy: Pointer); stdcall;
+    Vertex2fv      : procedure (const xy: TVec2f); stdcall;
     Vertex3f       : procedure (x, y, z: Single); stdcall;
-    Vertex3fv      : procedure (xyz: Pointer); stdcall;
+    Vertex3fv      : procedure (const xyz: TVec3f); stdcall;
+    Normal3f       : procedure (x, y, z: Single); stdcall;
+    Normal3fv      : procedure (const xyz: TVec3f); stdcall;
     TexCoord2f     : procedure (s, t: Single); stdcall;
-    TexCoord2fv    : procedure (st: Pointer); stdcall;
+    TexCoord2fv    : procedure (const st: TVec2f); stdcall;
     EnableClientState  : procedure (_array: TGLConst); stdcall;
     DisableClientState : procedure (_array: TGLConst); stdcall;
     DrawElements    : procedure (mode: TGLConst; count: LongInt; _type: TGLConst; const indices: Pointer); stdcall;
@@ -731,9 +809,10 @@ type
 
   TShaderUniform = object
   private
-    FType : TShaderUniformType;
-    FID   : LongInt;
-    FName : string;
+    FType  : TShaderUniformType;
+    FID    : LongInt;
+    FName  : string;
+//    FValue : array [0..15] of Single;
     procedure Init(ShaderID: LongWord; UniformType: TShaderUniformType; const UName: string);
   public
     procedure Value(const Data; Count: LongInt = 1);
@@ -847,7 +926,7 @@ type
 
 // Mesh ------------------------------------------------------------------------
 {$REGION 'Mesh'}
-  TDataType = (dtIndex, dtVertex);
+  TBufferType = (btIndex, btVertex);
 
   TMeshBuffer = object
   private
@@ -857,7 +936,7 @@ type
     ID     : LongWord;
     FData  : Pointer;
   public
-    procedure Init(DataType: TDataType; Size: LongInt; Data: Pointer);
+    procedure Init(BufferType: TBufferType; Size: LongInt; Data: Pointer);
     procedure Free;
     procedure SetData(Offset, Size: LongInt; Data: Pointer);
     procedure Enable;
@@ -866,7 +945,7 @@ type
   end;
 
   TMesh = object
-    Buffer : array [TDataType] of TMeshBuffer;
+    Buffer : array [TBufferType] of TMeshBuffer;
     procedure Draw;
   end;
 {$ENDREGION}
@@ -1101,7 +1180,8 @@ const
 
 var
   DC, RC   : LongWord;
-  TimeFreq : Int64;
+  TimeFreq  : Int64;
+  TimeStart : Int64;
   JoyCaps  : TJoyCaps;
   JoyInfo  : TJoyInfo;
   SoundDF  : TWaveFormatEx;
@@ -1382,6 +1462,18 @@ begin
   Result := Self + (v - Self) * t;
 end;
 
+function TVec2f.Min(const v: TVec2f): TVec2f;
+begin
+  Result.x := CoreX.Min(x, v.x);
+  Result.y := CoreX.Min(y, v.y);
+end;
+
+function TVec2f.Max(const v: TVec2f): TVec2f;
+begin
+  Result.x := CoreX.Max(x, v.x);
+  Result.y := CoreX.Max(y, v.y);
+end;
+
 function TVec2f.Clamp(const Min, Max: TVec2f): TVec2f;
 begin
   Result := Vec2f(CoreX.Clamp(x, Min.x, Max.x), CoreX.Clamp(y, Min.y, Max.y));
@@ -1463,7 +1555,7 @@ var
   d, s : Single;
 begin
   d := Dot(n);
-  s := 1 - sqr(Factor) * (1 - sqr(d));
+  s := (1 - sqr(Factor)) * (1 - sqr(d));
   if s < EPS then
     Result := Reflect(n)
   else
@@ -1501,6 +1593,20 @@ begin
   Result := Self + (v - Self) * t;
 end;
 
+function TVec3f.Min(const v: TVec3f): TVec3f;
+begin
+  Result.x := CoreX.Min(x, v.x);
+  Result.y := CoreX.Min(y, v.y);
+  Result.z := CoreX.Min(z, v.z);
+end;
+
+function TVec3f.Max(const v: TVec3f): TVec3f;
+begin
+  Result.x := CoreX.Max(x, v.x);
+  Result.y := CoreX.Max(y, v.y);
+  Result.z := CoreX.Max(z, v.z);
+end;
+
 function TVec3f.Clamp(const Min, Max: TVec3f): TVec3f;
 begin
   Result := Vec3f(CoreX.Clamp(x, Min.x, Max.x), CoreX.Clamp(y, Min.y, Max.y), CoreX.Clamp(z, Min.z, Max.z));
@@ -1526,8 +1632,161 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TVec4f'}
+{$IFDEF FPC}operator = {$ELSE}class operator TVec4f.Equal{$ENDIF}
+  (const a, b: TVec4f): Boolean;
+begin
+  with b - a do
+    Result := (abs(x) <= EPS) and (abs(y) <= EPS) and (abs(z) <= EPS) and (abs(w) <= EPS);
+end;
+
+{$IFDEF FPC}operator + {$ELSE}class operator TVec4f.Add{$ENDIF}
+  (const a, b: TVec4f): TVec4f;
+begin
+  Result.x := a.x + b.x;
+  Result.y := a.y + b.y;
+  Result.z := a.z + b.z;
+  Result.w := a.w + b.w;
+end;
+
+{$IFDEF FPC}operator - {$ELSE}class operator TVec4f.Subtract{$ENDIF}
+  (const a, b: TVec4f): TVec4f;
+begin
+  Result.x := a.x - b.x;
+  Result.y := a.y - b.y;
+  Result.z := a.z - b.z;
+  Result.w := a.w - b.w;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TVec4f.Multiply{$ENDIF}
+  (const a, b: TVec4f): TVec4f;
+begin
+  Result.x := a.x * b.x;
+  Result.y := a.y * b.y;
+  Result.z := a.z * b.z;
+  Result.w := a.w * b.w;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TVec4f.Multiply{$ENDIF}
+  (const v: TVec4f; x: Single): TVec4f;
+begin
+  Result.x := v.x * x;
+  Result.y := v.y * x;
+  Result.z := v.z * x;
+  Result.w := v.w * x;
+end;
+{$ENDREGION}
+
+{$REGION 'TQuat'}
+{ TQuat }
+{$IFDEF FPC}operator = {$ELSE}class operator TQuat.Equal{$ENDIF}
+  (const q1, q2: TQuat): Boolean;
+begin
+  Result := (abs(q1.x - q2.x) <= EPS) and
+            (abs(q1.y - q2.y) <= EPS) and
+            (abs(q1.z - q2.z) <= EPS) and
+            (abs(q1.w - q2.w) <= EPS);
+end;
+
+{$IFDEF FPC}operator + {$ELSE}class operator TQuat.Add{$ENDIF}
+  (const q1, q2: TQuat): TQuat;
+begin
+  Result.x := q1.x + q2.x;
+  Result.y := q1.y + q2.y;
+  Result.z := q1.z + q2.z;
+  Result.w := q1.w + q2.w;
+end;
+
+{$IFDEF FPC}operator - {$ELSE}class operator TQuat.Subtract{$ENDIF}
+  (const q1, q2: TQuat): TQuat;
+begin
+  Result.x := q1.x - q2.x;
+  Result.y := q1.y - q2.y;
+  Result.z := q1.z - q2.z;
+  Result.w := q1.w - q2.w;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TQuat.Multiply{$ENDIF}
+  (const q: TQuat; x: Single): TQuat;
+begin
+  Result.x := q.x * x;
+  Result.y := q.y * x;
+  Result.z := q.z * x;
+  Result.w := q.w * x;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TQuat.Multiply{$ENDIF}
+  (const q1, q2: TQuat): TQuat;
+begin
+  Result.x := q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y;
+  Result.y := q1.w * q2.y + q1.y * q2.w + q1.z * q2.x - q1.x * q2.z;
+  Result.z := q1.w * q2.z + q1.z * q2.w + q1.x * q2.y - q1.y * q2.x;
+  Result.w := q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TQuat.Multiply{$ENDIF}
+  (const q: TQuat; const v: TVec3f): TVec3f;
+begin
+  with q * Quat(v.x, v.y, v.z, 0) * q.Invert do
+    Result := Vec3f(x, y, z);
+end;
+
+function TQuat.Invert: TQuat;
+begin
+  Result := Quat(-x, -y, -z, w);
+end;
+
+function TQuat.Lerp(const q: TQuat; t: Single): TQuat;
+begin
+  if Dot(q) < 0 then
+    Result := Self - (q + Self) * t
+  else
+    Result := Self + (q - Self) * t;
+end;
+
+function TQuat.Dot(const q: TQuat): Single;
+begin
+  Result := x * q.x + y * q.y + z * q.z + w * q.w;
+end;
+
+function TQuat.Normal: TQuat;
+var
+  Len : Single;
+begin
+  Len := sqrt(sqr(x) + sqr(y) + sqr(z) + sqr(w));
+  if Len > 0 then
+  begin
+    Len := 1 / Len;
+    Result.x := x * Len;
+    Result.y := y * Len;
+    Result.z := z * Len;
+    Result.w := w * Len;
+  end;
+end;
+
+function TQuat.Euler: TVec3f;
+var
+  D : Single;
+begin
+  D := 2 * x * z + y * w;
+  if abs(D) > 1 - EPS then
+  begin
+    Result.x := 0;
+    if D > 0 then
+      Result.y := -pi * 0.5
+    else
+      Result.y :=  pi * 0.5;
+    Result.z := ArcTan2(-2 * (y * z - w * x), 2 * (w * w + y * y) - 1);
+  end else
+  begin
+    Result.x := -ArcTan2(2 * (y * z + w * x), 2 * (w * w + z * z) - 1);
+    Result.y := ArcSin(-d);
+    Result.z := -ArcTan2(2 * (x * y + w * z), 2 * (w * w + x * x) - 1);
+  end;
+end;
+{$ENDREGION}
+
 {$REGION 'TMat4f'}
-{ TMat4f }
 function TMat4f.GetPos: TVec3f;
 begin
   Result := Vec3f(e03, e13, e23);
@@ -1538,6 +1797,103 @@ begin
   e03 := v.x;
   e13 := v.y;
   e23 := v.z;
+end;
+
+function TMat4f.GetRot: TQuat;
+var
+  t, s : Single;
+begin
+  t := e00 + e11 + e22 + 1;
+  with Result do
+    if t > EPS then
+    begin
+      s := 0.5 / sqrt(t);
+      w := 0.25 / s;
+      x := (e12 - e21) * s;
+      y := (e20 - e02) * s;
+      z := (e01 - e10) * s;
+    end else
+    begin
+      if (e00 > e11) and (e00 > e22) then
+      begin
+        s := 2 * sqrt(1 + e00 - e11 - e22);
+        w := (e12 - e21) / s;
+        x := 0.25 * s;
+        y := (e10 + e01) / s;
+        z := (e20 + e02) / s;
+      end else
+        if e11 > e22 then
+        begin
+          s := 2 * sqrt(1 + e11 - e00 - e22);
+          w := (e20 - e02) / s;
+          x := (e10 + e01) / s;
+          y := 0.25 * s;
+          z := (e21 + e12) / s;
+        end else
+        begin
+          s := 2 * sqrt(1 + e22 - e00 - e11);
+          w := (e01 - e10) / s;
+          x := (e20 + e02) / s;
+          y := (e21 + e12) / s;
+          z := 0.25 * s;
+        end;
+    end;
+  Result := Result.Normal;
+end;
+
+procedure TMat4f.SetRot(const q: TQuat);{
+var
+  sqw, sqx, sqy, sqz, invs : Single;
+  tmp1, tmp2 : Single;
+begin
+  with q.Normal do
+  begin
+    sqx := x * x;
+    sqy := y * y;
+    sqz := z * z;
+    sqw := w * w;
+
+    e00 := ( sqx - sqy - sqz + sqw);
+    e11 := (-sqx + sqy - sqz + sqw);
+    e22 := (-sqx - sqy + sqz + sqw);
+
+    tmp1 := x * y;
+    tmp2 := z * w;
+    e10 := 2 * (tmp1 + tmp2);
+    e01 := 2 * (tmp1 - tmp2);
+
+    tmp1 := x * z;
+    tmp2 := y * w;
+    e20 := 2 * (tmp1 - tmp2);
+    e02 := 2 * (tmp1 + tmp2);
+
+    tmp1 := y * z;
+    tmp2 := x * w;
+    e21 := 2 * (tmp1 + tmp2);
+    e12 := 2 * (tmp1 - tmp2);
+  end;
+end;
+       }
+var
+  xx, yy, zz,
+  xy, xz, yz,
+  wx, wy, wz : Single;
+begin
+  with q.Normal do
+  begin
+    xx := 2 * x * x;
+    yy := 2 * y * y;
+    zz := 2 * z * z;
+    xy := 2 * x * y;
+    xz := 2 * x * z;
+    yz := 2 * y * z;
+    wx := 2 * w * x;
+    wy := 2 * w * y;
+    wz := 2 * w * z;
+    e00 := 1 - yy - zz;  e10 := xy - wz;      e20 := xz + wy;
+    e01 := xy + wz;      e11 := 1 - xx - zz;  e21 := yz - wx;
+    e02 := xz - wy;      e12 := yz + wx;      e22 := 1 - xx - yy;
+  end;
 end;
 
 {$IFDEF FPC}operator + {$ELSE}class operator TMat4f.Add{$ENDIF}
@@ -1650,27 +2006,6 @@ begin
   Result.e03 := e30; Result.e13 := e31; Result.e23 := e32; Result.e33 := e33;
 end;
 
-function TMat4f.FromAxisAngle(Angle: Single; const Axis: TVec3f): TMat4f;
-var
-  s, c  : Single;
-  ic : Single;
-  xy, yz, zx, xs, ys, zs, icxy, icyz, iczx : Single;
-begin
-  SinCos(Angle, s, c);
-  ic := 1 - c;
-
-  with Result, Axis do
-  begin
-    xy := x * y;  yz := y * z;  zx := z * x;
-    xs := x * s;  ys := y * s;  zs := z * s;
-    icxy := ic * xy;  icyz := ic * yz;  iczx := ic * zx;
-    e00 := ic * x * x + c;  e01 := icxy - zs;       e02 := iczx + ys;       e03 := 0.0;
-    e10 := icxy + zs;       e11 := ic * y * y + c;  e12 := icyz - xs;       e13 := 0.0;
-    e20 := iczx - ys;       e21 := icyz + xs;       e22 := ic * z * z + c;  e23 := 0.0;
-    e30 := 0.0;             e31 := 0.0;             e32 := 0.0;             e33 := 1.0;
-  end;
-end;
-
 procedure TMat4f.Translate(const v: TVec3f);
 var
   m : TMat4f;
@@ -1684,7 +2019,7 @@ procedure TMat4f.Rotate(Angle: Single; const Axis: TVec3f);
 var
   m : TMat4f;
 begin
-  m := m.FromAxisAngle(Angle, Axis);
+  m := Mat4f(Angle, Axis);
   Self := Self * m;
 end;
 
@@ -1776,6 +2111,46 @@ begin
   Result.y := y;
   Result.z := z;
   Result.w := w;
+end;
+
+function Quat(x, y, z, w: Single): TQuat;
+begin
+  Result.x := x;
+  Result.y := y;
+  Result.z := z;
+  Result.w := w;
+end;
+
+function Quat(Angle: Single; const Axis: TVec3f): TQuat;
+var
+  s, c : Single;
+begin
+  SinCos(Angle * 0.5, s, c);
+  Result.x := Axis.x * s;
+  Result.y := Axis.y * s;
+  Result.z := Axis.z * s;
+  Result.w := c;
+end;
+
+function Mat4f(Angle: Single; const Axis: TVec3f): TMat4f;
+var
+  s, c  : Single;
+  ic : Single;
+  xy, yz, zx, xs, ys, zs, icxy, icyz, iczx : Single;
+begin
+  SinCos(Angle, s, c);
+  ic := 1 - c;
+
+  with Result, Axis do
+  begin
+    xy := x * y;  yz := y * z;  zx := z * x;
+    xs := x * s;  ys := y * s;  zs := z * s;
+    icxy := ic * xy;  icyz := ic * yz;  iczx := ic * zx;
+    e00 := ic * x * x + c;  e01 := icxy - zs;       e02 := iczx + ys;       e03 := 0.0;
+    e10 := icxy + zs;       e11 := ic * y * y + c;  e12 := icyz - xs;       e13 := 0.0;
+    e20 := iczx - ys;       e21 := icyz + xs;       e22 := ic * z * z + c;  e23 := 0.0;
+    e30 := 0.0;             e31 := 0.0;             e32 := 0.0;             e33 := 1.0;
+  end;
 end;
 
 function Min(x, y: LongInt): LongInt;
@@ -1917,7 +2292,6 @@ end;
 {$REGION 'TResManager'}
 type
   TResType = (rtTexture, rtShader, rtSound);
-  TResActive = (raTexture, raShader = 16, raVbuffer, raIBuffer);
 
   TResData = record
     Ref  : LongInt;
@@ -1935,9 +2309,12 @@ type
   end;
 
   TResManager = object
-    Items : array of TResData;
-    Count : LongInt;
-    Active : array [TResActive] of LongInt;
+    Items  : array of TResData;
+    Count  : LongInt;
+  // 0..15  - Texture
+  // 16     - Shader
+  // 17, 18 - Index, Vertex buffer
+    Active : array [0..18] of LongInt;
     procedure Init;
     function Add(const Name: string; out Idx: LongInt): Boolean;
     function Delete(Idx: LongInt): Boolean;
@@ -1948,11 +2325,11 @@ var
 
 procedure TResManager.Init;
 var
-  i : TResActive;
+  i : LongInt;
 begin
   Items := nil;
   Count := 0;
-  for i := Low(i) to High(i) do
+  for i := Low(Active) to High(Active) do
     Active[i] := -1;
 end;
 
@@ -1992,14 +2369,14 @@ end;
 
 function TResManager.Delete(Idx: LongInt): Boolean;
 var
- i : TResActive;
+ i : LongInt;
 begin
   Dec(Items[Idx].Ref);
   Result := Items[Idx].Ref <= 0;
   if Result then
   begin
     Items[Idx].Name := '';
-    for i := Low(i) to High(i) do
+    for i := Low(Active) to High(Active) do
       if Active[i] = Idx then
         Active[i] := -1;
   end;
@@ -2524,6 +2901,121 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'TList'}
+procedure TList.Init(Capacity: LongInt);
+begin
+  FItems := nil;
+  FCount := 0;
+  FCapacity := Capacity;
+end;
+
+procedure TList.Free(FreeClass: Boolean);
+var
+  i : LongInt;
+begin
+  if FreeClass then
+    for i := 0 to Count - 1 do
+      TObject(FItems[i]).Free;
+  FItems := nil;
+  FCount := 0;
+end;
+
+procedure TList.BoundsCheck(Index: LongInt);
+begin
+  if (Index < 0) or (Index >= FCount) then
+    Assert('List index out of bounds (' + Conv(Index) + ')');
+end;
+
+function TList.GetItem(Index: LongInt): Pointer;
+begin
+  BoundsCheck(Index);
+  Result := FItems[Index];
+end;
+
+procedure TList.SetItem(Index: LongInt; Value: Pointer);
+begin
+  BoundsCheck(Index);
+  FItems[Index] := Value;
+end;
+
+function TList.IndexOf(Item: Pointer): LongInt;
+var
+  i : LongInt;
+begin
+  for i := 0 to FCount - 1 do
+    if FItems[i] = Item then
+    begin
+      Result := i;
+      Exit;
+    end;
+  Result := -1;
+end;
+
+function TList.Add(Item: Pointer): LongInt;
+begin
+  if FCount mod FCapacity = 0 then
+    SetLength(FItems, Length(FItems) + FCapacity);
+  FItems[FCount] := Item;
+  Result := FCount;
+  Inc(FCount);
+end;
+
+procedure TList.Delete(Index: LongInt; FreeClass: Boolean);
+begin
+  BoundsCheck(Index);
+  if FreeClass then
+    TObject(FItems[Index]).Free;
+  Move(FItems[Index + 1], FItems[Index], (FCount - Index - 1) * SizeOf(FItems[0]));
+  Dec(FCount);
+  if Length(FItems) - FCount + 1 > FCapacity then
+    SetLength(FItems, Length(FItems) - FCapacity);
+end;
+
+procedure TList.Insert(Index: LongInt; Item: Pointer);
+begin
+  BoundsCheck(Index);
+  Add(nil);
+  Move(FItems[Index], FItems[Index + 1], (FCount - Index - 1) * SizeOf(FItems[0]));
+  FItems[Index] := Item;
+end;
+
+procedure TList.Sort(CompareFunc: TListCompareFunc);
+
+  procedure SortFragment(L, R: LongInt);
+  var
+    i, j : Integer;
+    P, T : Pointer;
+  begin
+    repeat
+      i := L;
+      j := R;
+      P := FItems[(L + R) div 2];
+      repeat
+        while CompareFunc(FItems[i], P) < 0 do
+          Inc(i);
+        while CompareFunc(FItems[j], P) > 0 do
+          Dec(j);
+        if i <= j then
+        begin
+          T := FItems[i];
+          FItems[i] := FItems[j];
+          FItems[j] := T;
+          Inc(i);
+          Dec(j);
+        end;
+      until i > j;
+      if L < j then
+        SortFragment(L, j);
+      L := i;
+    until i >= R;
+  end;
+
+begin
+  if FCount > 1 then
+    SortFragment(0, FCount - 1);
+end;
+{$ENDREGION}
+
 {$REGION 'Utils'}
 function Conv(const Str: string; Def: LongInt): LongInt;
 var
@@ -2655,6 +3147,16 @@ begin
   Result.G := G;
   Result.B := B;
   Result.A := A;
+end;
+{$ENDREGION}
+
+{$REGION 'MyGovnoCode'}
+procedure DoGovno(Count: LongInt);
+var
+  i : LongInt;
+begin
+  for i := 0 to Count - 1 do
+    Writeln('Govno');
 end;
 {$ENDREGION}
 
@@ -2878,6 +3380,7 @@ var
   ChoisePF : TwglChoosePixelFormatARB;
   PFIdx    : LongInt;
   PFCount  : LongWord;
+  PHandle  : LongWord;
 begin
   FWidth   := 800;
   FHeight  := 600;
@@ -2899,8 +3402,8 @@ begin
   begin
     LongWord(Pointer(@PFDAttrib[1])^) := 1 shl (Ord(FAntiAliasing) - 1); // Set num WGL_SAMPLES
   // Temp window
-    Handle := CreateWindowExA(0, 'EDIT', nil, 0, 0, 0, 0, 0, 0, 0, 0, nil);
-    DC := GetDC(Handle);
+    PHandle := CreateWindowExA(0, 'EDIT', nil, 0, 0, 0, 0, 0, 0, 0, 0, nil);
+    DC := GetDC(PHandle);
     SetPixelFormat(DC, ChoosePixelFormat(DC, @PFD), @PFD);
     RC := wglCreateContext(DC);
     wglMakeCurrent(DC, RC);
@@ -2909,8 +3412,8 @@ begin
       ChoisePF(DC, @PFDAttrib, @AttribF, 1, @PFIdx, @PFCount);
     wglMakeCurrent(0, 0);
     wglDeleteContext(RC);
-    ReleaseDC(Handle, DC);
-    DestroyWindow(Handle);
+    ReleaseDC(PHandle, DC);
+    DestroyWindow(PHandle);
   end;
   FCustom := Handle <> 0;
 // Window
@@ -2921,7 +3424,6 @@ begin
     SendMessageA(Handle, WM_SETICON, 1, LoadIconA(HInstance, 'MAINICON'));
     SetWindowLongA(Handle, GWL_WNDPROC, LongInt(@WndProc));
   end;
-
 // OpenGL
   DC := GetDC(Handle);
   if PFIdx = -1 then
@@ -3312,14 +3814,14 @@ begin
     if Screen.Active then // Main window active?
     begin
     // Window Center Pos (Screen Space)
-      CPos.X := (Rect.Right - Rect.Left) div 2;
-      CPos.Y := (Rect.Bottom - Rect.Top) div 2;
+      CPos.X := (Rect.Right + Rect.Left) div 2;
+      CPos.Y := (Rect.Bottom + Rect.Top) div 2;
     // Calc mouse cursor position delta
       Mouse.Delta.X := Pos.X - CPos.X;
       Mouse.Delta.Y := Pos.Y - CPos.Y;
     // Centering cursor
       if (Mouse.Delta.X <> 0) or (Mouse.Delta.Y <> 0) then
-        SetCursorPos(Rect.Left + CPos.X, Rect.Top + CPos.Y);
+        SetCursorPos(CPos.X, CPos.Y);
       Inc(Mouse.Pos.X, Mouse.Delta.X);
       Inc(Mouse.Pos.Y, Mouse.Delta.Y);
     end else
@@ -3614,6 +4116,7 @@ begin
   gl.Init;
 {$IFDEF WINDOWS}
   QueryPerformanceFrequency(TimeFreq);
+  QueryPerformanceCounter(TimeStart);  
 {$ENDIF}
   Screen.Restore;
   Blend := btNormal;
@@ -3660,7 +4163,7 @@ var
   Count : Int64;
 begin
   QueryPerformanceCounter(Count);
-  Result := Trunc(1000 * (Count / TimeFreq));
+  Result := Trunc(1000 * ((Count - TimeStart) / TimeFreq));
 end;
 {$ENDIF}
 {$IFDEF LINUX}
@@ -3668,7 +4171,7 @@ var
   tv : TTimeVal;
 begin
   gettimeofday(tv, nil);
-  Result := tv.tv_sec * 1000 + tv.tv_usec div 1000;
+  Result := tv.tv_sec * 1000 + tv.tv_usec div 1000; // FIX! Add TimeStart
 end;
 {$ENDIF}
 
@@ -3728,7 +4231,7 @@ end;
 
 procedure TRender.Color(R: Byte; G: Byte; B: Byte; A: Byte);
 begin
-  gl.Color4ub(R, G, B, A);
+  gl.Color4f(R/255, G/255, B/255, A/255);
 end;
 
 procedure TRender.Set2D(Width, Height: LongInt);
@@ -3760,7 +4263,7 @@ begin
   v[1] := Vec4f(x + w, y, s + sw, t + th);
   v[2] := Vec4f(x + w, y + h, s + sw, t);
   v[3] := Vec4f(x, y + h, s, t);
-
+                   {
   gl.Beginp(GL_TRIANGLE_STRIP);
     gl.TexCoord2fv(@v[0].z);
     gl.Vertex2fv(@v[0].x);
@@ -3770,7 +4273,7 @@ begin
     gl.Vertex2fv(@v[3].x);
     gl.TexCoord2fv(@v[2].z);
     gl.Vertex2fv(@v[2].x);
-  gl.Endp;
+  gl.Endp;          }
 end;
 {$ENDREGION}
 
@@ -3916,12 +4419,12 @@ procedure TTexture.Enable(Channel: LongInt);
 begin
   if not (Channel in [0..15]) then
     Assert('Incorrect texture channel number (' + Conv(Channel) + ') ' + ResManager.Items[ResIdx].Name);
-  if ResManager.Active[TResActive(Channel)] <> ResIdx then
+  if ResManager.Active[Channel] <> ResIdx then
   begin
     if Render.Support(rsMT) then
       gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + Channel));
     gl.BindTexture(GL_TEXTURE_2D, ResManager.Items[ResIdx].ID);
-    ResManager.Active[TResActive(Channel)] := ResIdx;
+    ResManager.Active[Channel] := ResIdx;
   end;
 end;
 {$ENDREGION}
@@ -4076,12 +4579,20 @@ end;
 
 procedure TShader.Enable;
 begin
-  gl.UseProgram(FID);
+  if ResManager.Active[16] <> ResIdx then
+  begin
+    gl.UseProgram(FID);
+    ResManager.Active[16] := ResIdx;
+  end;
 end;
 
 procedure TShader.Disable;
 begin
-  gl.UseProgram(0);
+  if ResManager.Active[16] <> -1 then
+  begin
+    gl.UseProgram(0);
+    ResManager.Active[16] := -1;
+  end;
 end;
 {$ENDREGION}
 
@@ -4285,10 +4796,10 @@ begin
     for y := 0 to FRows - 2 do
       for x := 0 to FCols - 2 do
       begin
-        gl.TexCoord2fv(@t[x, y]);         gl.Vertex2fv(@v[x, y]);
-        gl.TexCoord2fv(@t[x + 1, y]);     gl.Vertex2fv(@v[x + 1, y]);
-        gl.TexCoord2fv(@t[x + 1, y + 1]); gl.Vertex2fv(@v[x + 1, y + 1]);
-        gl.TexCoord2fv(@t[x, y + 1]);     gl.Vertex2fv(@v[x, y + 1]);
+        gl.TexCoord2fv(t[x, y]);         gl.Vertex2fv(v[x, y]);
+        gl.TexCoord2fv(t[x + 1, y]);     gl.Vertex2fv(v[x + 1, y]);
+        gl.TexCoord2fv(t[x + 1, y + 1]); gl.Vertex2fv(v[x + 1, y + 1]);
+        gl.TexCoord2fv(t[x, y + 1]);     gl.Vertex2fv(v[x, y + 1]);
       end;
   gl.Endp;
 
@@ -4298,16 +4809,16 @@ end;
 
 // Mesh ========================================================================
 {$REGION 'TMeshBuffer'}
-procedure TMeshBuffer.Init(DataType: TDataType; Size: LongInt; Data: Pointer);
+procedure TMeshBuffer.Init(BufferType: TBufferType; Size: LongInt; Data: Pointer);
 begin
-  if DataType = dtIndex then
+  if BufferType = btIndex then
   begin
     DType := GL_ELEMENT_ARRAY_BUFFER;
-    RType := Ord(raIBuffer);
+    RType := 17;
   end else
   begin
     DType := GL_ARRAY_BUFFER;
-    RType := Ord(raVBuffer);
+    RType := 18;
   end;
 
   if Render.Support(rsVBO) then
@@ -4328,7 +4839,7 @@ end;
 
 procedure TMeshBuffer.Free;
 begin
-  if FData = nil then
+  if FData <> nil then
     FreeMemory(FData)
   else
     gl.DeleteBuffers(1, @ID);
@@ -4354,21 +4865,21 @@ end;
 
 procedure TMeshBuffer.Enable;
 begin
-  if ResManager.Active[TResActive(RType)] <> ResIdx then
+  if ResManager.Active[RType] <> ResIdx then
   begin
     if FData = nil then
       gl.BindBuffer(DType, ID);
-    ResManager.Active[TResActive(RType)] := ResIdx;
+    ResManager.Active[RType] := ResIdx;
   end;
 end;
 
 procedure TMeshBuffer.Disable;
 begin
-  if ResManager.Active[TResActive(RType)] <> -1 then
+  if ResManager.Active[RType] <> -1 then
   begin
     if FData = nil then
       gl.BindBuffer(DType, 0);
-    ResManager.Active[TResActive(RType)] := -1;
+    ResManager.Active[RType] := -1;
   end;
 end;
 {$ENDREGION}
@@ -4376,14 +4887,14 @@ end;
 {$REGION 'TMesh'}
 procedure TMesh.Draw;
 begin
-  Buffer[dtIndex].Enable;
-  Buffer[dtVertex].Disable;
+  Buffer[btIndex].Enable;
+  Buffer[btVertex].Disable;
 
 //  gl.VertexPointer(3, GL_FLOAT, SizeOf(TVec3f), @Map[0, 0]);
 //  gl.DrawElements(GL_TRIANGLES, sqr(LOD_SIZE - 1) * 2 * 3, GL_UNSIGNED_INT, @Face[0]);
 
-  Buffer[dtVertex].Disable;
-  Buffer[dtIndex].Disable;
+  Buffer[btVertex].Disable;
+  Buffer[btIndex].Disable;
 end;
 {$ENDREGION}
 
@@ -4430,15 +4941,21 @@ const
     'glDepthFunc',
     'glStencilOp',
     'glLightfv',
+    'glMaterialfv',
     'glViewport',
     'glBegin',
     'glEnd',
     'glLineWidth',
-    'glColor4ub',
+    'glColor3f',
+    'glColor3fv',
+    'glColor4f',
+    'glColor4fv',
     'glVertex2f',
     'glVertex2fv',
     'glVertex3f',
     'glVertex3fv',
+    'glNormal3f',
+    'glNormal3fv',
     'glTexCoord2f',
     'glTexCoord2fv',
     'glEnableClientState',
