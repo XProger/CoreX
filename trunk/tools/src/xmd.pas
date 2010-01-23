@@ -1,15 +1,17 @@
-program xmd;
-
-{$APPTYPE CONSOLE}
-
-uses
-  CoreX, Windows, NvTriStrip;
+unit xmd;
 
 //{$DEFINE DEBUG}
 
 {$IFDEF DEBUG}
 //  {$DEFINE DEBUG_NODE}
+//  {$DEFINE DEBUG_BBOX}
+//  {$DEFINE DEBUG_MESH}
 {$ENDIF}
+
+interface
+
+uses
+  CoreX, Windows, NvTriStrip;
 
 {$REGION 'Common converter definitions'}
 type
@@ -69,15 +71,23 @@ type
   end;
   TVertexArray = array of TVertex;
 
-  TBBox = record
-    Min, Max : TVec3f;
+  TVertexIndex = record
+    Coord    : LongInt;
+    Tangent  : LongInt;
+    Binormal : LongInt;
+    Normal   : LongInt;
+    TexCoord : array [0..1] of LongInt;
+    Color    : LongInt;
+    Weight   : LongInt;
+    Joint    : LongInt;
   end;
+  TVertexIndexArray = array of TVertexIndex;
 
   TMesh = object
     Format : LongWord;
     Index  : TIndexArray;
     Vertex : TVertexArray;
-    BBox   : TBBox;
+    BBox   : TBox;
   private
     Buffer : array [TBufferType] of TMeshBuffer;
     procedure CalculateTBN;
@@ -87,10 +97,21 @@ type
     procedure Init(Source: TSourceArray);
     procedure Free;
     procedure Save(const FileName: string);
+    procedure InitVBO;
   end;
 {$ENDREGION}
 
 {$REGION 'Material format'}
+  TNodeMaterial = record
+    URL       : string;
+    Name      : string;
+    ShadeType : (stLambert, stPhong, stBlinn);
+    Params    : TMaterialParams;
+    Defines   : array of string;
+    Sampler   : array [TMaterialSampler] of string;
+    Material  : TMaterial;
+  end;
+{
   TSamplerFlag = (sfDiffuse, sfNormal, sfSpecular, sfNormalSpecular, sfEmission, sfReflect, sfLighting, sfAmbient);
 
   TMaterial = record
@@ -100,6 +121,7 @@ type
     Ambient  : TVec3f;
     Texture  : array [TSamplerFlag] of string;
   end;
+}
 {$ENDREGION}
 
 {$REGION 'Light format'}
@@ -110,14 +132,17 @@ type
 
 {$REGION 'Node format'}
 type
+  PNode = ^TNode;
   TNode = record
     Parent   : LongInt;
     Matrix   : TMat4f;
+    AMatrix  : TMat4f;
     Joint    : Boolean;
+    Source   : TSourceArray;
     Mesh     : TMesh;
+    Material : TNodeMaterial;
     Name     : string;
     MeshURL  : string;
-    MatName  : string;
     MatURL   : string;
     SkinURL  : string;
     JointURL : string;
@@ -134,12 +159,20 @@ const
     Joint  : False;
     Name     : '';
     MeshURL  : '';
-    MatName  : '';
     MatURL   : '';
     SkinURL  : '';
     JointURL : '';
   );
 {$ENDREGION}
+
+procedure OnInit;
+procedure OnFree;
+procedure OnRender;
+
+var
+  FlipBinormal : Boolean = True;//False;
+
+implementation
 
 {$REGION 'Common functions'}
 procedure Info(const Text: string);
@@ -149,18 +182,18 @@ end;
 
 procedure Error(const Text: string);
 begin
-  Writeln('Error: ', Text);
+  Writeln('! Error: ', Text);
   Readln;
 end;
 
 procedure Warning(const Text: string);
 begin
-  Writeln('Warning: ', Text);
+  Writeln('! Warning: ', Text);
 end;
 
 procedure Hint(const Text: string);
 begin
-  Writeln('Hint: ', Text);
+  Writeln('! Hint: ', Text);
 end;
 
 procedure WriteMat4f(const m: TMat4f);
@@ -298,14 +331,12 @@ end;
 
 {$REGION 'TMesh'}
 procedure TMesh.CalculateTBN;
-const
-  NullVec : TVec3f = (x: 0; y: 0; z: 0);
 var
   i  : Integer;
   v  : TVertex;
   e  : array [0..1] of TVec3f;
   st : array [0..1] of TVec2f;
-  tn, bn : TVec3f;
+  tn : TVec3f;
   k : Single;
   Basis : array of record
       T, B : TVec3f;
@@ -343,6 +374,7 @@ begin
 
 // Reconstruct mesh
   SetLength(ResVertex, Length(Index)); // with reserved
+  FillChar(v, SizeOf(v), 0);
 
   Count := 0;
   for i := 0 to Length(Index) - 1 do
@@ -375,21 +407,20 @@ begin
     Index[i] := Idx;
   end;
   SetLength(ResVertex, Count);
-  Vertex := ResVertex;
-
 // Basis orthonormalization
   for i := 0 to Length(ResVertex) - 1 do
     with ResVertex[i] do
     begin
       tn := Tangent;
-      bn := Binormal;
-      Tangent := (tn - Normal * Normal.Dot(tn)).Normal;
-      if bn.Dot(Normal.Cross(tn)) < 0 then
-        Binormal := Tangent.Cross(Normal)
+      Tangent := (Tangent - Normal * Normal.Dot(Tangent)).Normal;
+      if Binormal.Dot(Normal.Cross(tn)) < 0 then
+        Binormal := Tangent.Cross(Normal).Normal
       else
-        Binormal := Normal.Cross(Tangent);
-      Binormal := Binormal.Normal;
+        Binormal := Normal.Cross(Tangent).Normal;
+      if FlipBinormal then
+        Binormal := Binormal * -1;
     end;
+  Vertex := ResVertex;
 end;
 
 procedure TMesh.CalculateBBox;
@@ -404,9 +435,11 @@ begin
     BBox.Max := Vertex[i].Coord.Max(BBox.Max);
   end;
 
-  with BBox do
-    Info(' BBox: (' + Conv(Min.x, 2) + ', ' + Conv(Min.y, 2) + ', ' + Conv(Min.z, 2) + ') - (' +
-                      Conv(Max.x, 2) + ', ' + Conv(Max.y, 2) + ', ' + Conv(Max.z, 2) + ')');
+  {$IFDEF DEBUG_BBOX}
+    with BBox do
+      Info(' BBox: (' + Conv(Min.x, 2) + ', ' + Conv(Min.y, 2) + ', ' + Conv(Min.z, 2) + ') - (' +
+                        Conv(Max.x, 2) + ', ' + Conv(Max.y, 2) + ', ' + Conv(Max.z, 2) + ')');
+  {$ENDIF}
 end;
 
 procedure TMesh.Optimize;
@@ -416,8 +449,8 @@ var
   GroupCount          : Word;
   i                   : Integer;
 begin
-  nvtsSetCacheSize(24);
-  nvtsSetStitchStrips(True);
+  nvtsSetCacheSize(32);
+  nvtsSetStitchStrips(False);
   nvtsSetListOnly(True);
 
   nvtsGenerateStrips(@Index[0], Length(Index), Groups, GroupCount);
@@ -426,7 +459,7 @@ begin
   SetLength(VertexRemap, Length(Vertex));
   Move(Vertex[0], VertexRemap[0], Length(Vertex) * SizeOf(TVertex));
 
-  for i := 0 to Groups^.numIndices - 1 do
+  for i := 0 to GroupsRemap^.numIndices - 1 do
   begin
     Index[i] := GroupsRemap^.indices[i];
     Vertex[Index[i]] := VertexRemap[Groups^.indices[i]];
@@ -439,12 +472,21 @@ const
     FF_UNKNOWN, FF_UNKNOWN, FF_COORD, FF_TBN, FF_TBN, FF_NORMAL, FF_TEXCOORD0, FF_TEXCOORD1, FF_COLOR, FF_WEIGHT, FF_JOINT, FF_UNKNOWN
   );
 
+  procedure GetIndex(Idx: LongInt; S: TSourceID; out Value: LongInt);
+  begin
+    if Format and FormatFlags[S] > 0 then
+      Value := Source[S].ValueI[Idx]
+    else
+      Value := 0;
+  end;
+
   procedure GetValue(Idx: LongInt; S: TSourceID; out Value: TVec4f); overload;
   begin
-    Value := NullVec4f;
     if Format and FormatFlags[S] > 0 then
       with Source[S] do
-        Move(ValueF[Stride * ValueI[Idx]], Value, Stride * SizeOf(ValueF[0]));
+        Move(ValueF[Stride * Idx], Value, Stride * SizeOf(ValueF[0]))
+    else
+    Value := NullVec4f;    
   end;
 
   procedure GetValue(Idx: LongInt; S: TSourceID; out Value: TVec3f); overload;
@@ -466,8 +508,9 @@ const
 var
   i : LongInt;
   S : TSourceID;
-  v : TVertex;
   Count, Idx : LongInt;
+  v : TVertexIndex;
+  VIndex : TVertexIndexArray;
 begin
   Format := FF_UNKNOWN;
   for S := Low(S) to High(S) do
@@ -482,26 +525,37 @@ begin
 
 // Construct index & vertex
   SetLength(Index, Length(Source[SID_POSITION].ValueI));
-  SetLength(Vertex, Length(Index));
-  FillChar(Vertex[0], Length(Vertex) * SizeOf(TVertex), 0);
+  SetLength(VIndex, Length(Index));
   FillChar(v, SizeOf(v), 0);
 
   Count := 0;
   for i := 0 to Length(Index) - 1 do
   begin
+    GetIndex(i, SID_POSITION, v.Coord);
+  {// Collada Maya 3.05C has incorrect Tangent & Binormal
+    GetIndex(i, SID_TANGENT, v.Tangent);
+    GetIndex(i, SID_BINORMAL, v.Binormal);
+  }
+    GetIndex(i, SID_NORMAL, v.Normal);
+    GetIndex(i, SID_TEXCOORD0, v.TexCoord[0]);
+    GetIndex(i, SID_TEXCOORD1, v.TexCoord[1]);
+    GetIndex(i, SID_COLOR, v.Color);
+
+{
     GetValue(i, SID_POSITION, v.Coord);
     GetValue(i, SID_NORMAL, v.Normal);
     GetValue(i, SID_TEXCOORD0, v.TexCoord[0]);
     GetValue(i, SID_TEXCOORD1, v.TexCoord[1]);
     GetValue(i, SID_COLOR, v.Color);
-{
+
     GetValue(i, SID_WEIGHT, v.Weight);
     GetValue(i, SID_JOINT, v.Joint);
 }
     Idx := 0;
     while Idx < Count  do
-      with Vertex[Idx] do
-        if (Coord = v.Coord) and (Normal = v.Normal) and
+      with VIndex[Idx] do
+        if (Coord = v.Coord) and
+           (Tangent = v.Tangent) and (Binormal = v.Binormal) and (Normal = v.Normal) and
            (TexCoord[0] = v.TexCoord[0]) and (TexCoord[1] = v.TexCoord[1]) and
            (Color = v.Color) and (Weight = v.Weight) and (Joint = v.Joint) then
           break
@@ -510,17 +564,35 @@ begin
 
     if Idx = Count then
     begin
-      Vertex[Count] := v;
+      VIndex[Count] := v;
       Inc(Count);
     end;
     Index[i] := Idx;
   end;
+
+  if Count > High(Word) then
+    Error('Index count (' + Conv(Count) + ') > ' + Conv(High(Word)));
+
   SetLength(Vertex, Count);
+  for i := 0 to Count - 1 do
+    with Vertex[i] do
+    begin
+      GetValue(VIndex[i].Coord, SID_POSITION, Coord);
+      GetValue(VIndex[i].Tangent, SID_TANGENT, Tangent);
+      GetValue(VIndex[i].Binormal, SID_BINORMAL, Binormal);
+      GetValue(VIndex[i].Normal, SID_NORMAL, Normal);
+      GetValue(VIndex[i].TexCoord[0], SID_TEXCOORD0, TexCoord[0]);
+      GetValue(VIndex[i].TexCoord[1], SID_TEXCOORD1, TexCoord[1]);
+      GetValue(VIndex[i].Color, SID_COLOR, Color);
+    end;
 
 // Convert to Y-up axis
   for i := 0 to Length(Vertex) - 1 do
     with Vertex[i] do
     begin
+      TexCoord[0] := Vec2f(TexCoord[0].x, -TexCoord[0].y);
+      TexCoord[1] := Vec2f(TexCoord[1].x, -TexCoord[1].y);
+//      Binormal := Binormal * -1;
       Coord := Coord * UnitScale;
       case UpAxis of
         uaX :
@@ -537,13 +609,13 @@ begin
     end;
 
   CalculateTBN;
-  Info(' Format: (T: ' + Conv(Length(Index) div 3) + '; V: ' + Conv(Length(Vertex)) + ')');
+
+  {$IFDEF DEBUG_MESH}
+    Info(' Format: (T: ' + Conv(Length(Index) div 3) + '; V: ' + Conv(Length(Vertex)) + ')');
+  {$ENDIF}
 
   CalculateBBox;
-  Optimize;
-
-  Buffer[btIndex].Init(btIndex, Length(Index) * SizeOf(Index[0]), @Index[0]);
-  Buffer[btVertex].Init(btVertex, Length(Vertex) * SizeOf(Vertex[0]), @Vertex[0]);
+//  Optimize;
 end;
 
 procedure TMesh.Free;
@@ -556,9 +628,15 @@ procedure TMesh.Save(const FileName: string);
 begin
   //
 end;
+
+procedure TMesh.InitVBO;
+begin
+  Buffer[btIndex]  := TMeshBuffer.Init(btIndex, Length(Index) * SizeOf(Index[0]), @Index[0]);
+  Buffer[btVertex] := TMeshBuffer.Init(btVertex, Length(Vertex) * SizeOf(Vertex[0]), @Vertex[0]);
+end;
 {$ENDREGION}
 
-{$REGION 'Get functions'}
+{$REGION 'GetSkin'}
 function GetSkin(const XML: TXML; const URL: string): TXML;
 var
   i : LongInt;
@@ -574,24 +652,32 @@ begin
   Error('Can''t find controller "' + URL + '"');
   Result := nil;
 end;
+{$ENDREGION}
 
-function GetMesh(const XML: TXML; const URL, SkinURL: string; out Source : TSourceArray): Boolean;
+{$REGION 'GetMesh'}
+function GetMesh(const XML: TXML; const MeshURL, SkinURL: string; out Source : TSourceArray): Boolean;
 
   procedure GetInputs(const SourceXML, XML: TXML);
 
     function GetSourceID(const Semantic, SourceURL: string): TSourceID;
     var
-      S : TSourceID;
+      S    : TSourceID;
+      Flag : Boolean;
     begin
       Result := SID_UNKNOWN;
+      Flag   := True;
       for S := Low(S) to High(S) do
-        if (SourceName[S] = Semantic) and
-           ((Source[S].SourceURL = '') or (Source[S].SourceURL = SourceURL)) then
+        if (SourceName[S] = Semantic) then
         begin
-          Result := S;
-          Exit;
+          Flag := False;
+          if (Source[S].SourceURL = '') or (Source[S].SourceURL = SourceURL) then
+          begin
+            Source[S].SourceURL := SourceURL;
+            Result := S;
+            Exit;
+          end;
         end;
-      if Result = SID_UNKNOWN then
+      if Flag then
         Warning('Unknown input semantic "' + Semantic + '"');
     end;
 
@@ -607,15 +693,14 @@ function GetMesh(const XML: TXML; const URL, SkinURL: string; out Source : TSour
             S := GetSourceID(Params['semantic'].Value, ConvURL(Params['source'].Value));
             if S <> SID_UNKNOWN then
             begin
-              Source[S].Offset    := Conv(Params['offset'].Value, -1);
+              Source[S].Offset := Conv(Params['offset'].Value, -1);
               if S = SID_VERTEX then
               begin
+                Source[S].SourceURL := '';
                 for S := Low(S) to High(S) do
                   if Source[S].Offset = -1 then
                     Source[S].Offset := Source[SID_VERTEX].Offset;
               end else
-              begin
-                Source[S].SourceURL := ConvURL(Params['source'].Value);
                 with SourceXML do
                   for j := 0 to Count - 1 do
                     with NodeI[j] do
@@ -629,7 +714,7 @@ function GetMesh(const XML: TXML; const URL, SkinURL: string; out Source : TSour
                               Source[S].ValueS := ParseString(Node['Name_array'].Content);
                             Source[S].Stride := Conv(Node['technique_common']['accessor'].Params['stride'].Value, 1);
                           end;
-              end;
+
             end;
           end;
   end;
@@ -663,11 +748,15 @@ var
   InputXML : TXML;
   SkinXML  : TXML;
 begin
+  {$IFDEF DEBUG_MESH}
+    Info('Mesh: ' + MeshURL);
+  {$ENDIF}
+
   Result := False;
   FillChar(Source, SizeOf(Source), 0);
   with XML['library_geometries'] do
     for i := 0 to Count - 1 do
-      if NodeI[i].Params['id'].Value = URL then
+      if NodeI[i].Params['id'].Value = MeshURL then
         with NodeI[i] do
         begin
           InputXML := Node['mesh'];
@@ -675,7 +764,7 @@ begin
             Exit; // spline etc. is not supported
           if InputXML.Node['triangles'] = nil then
           begin
-            Error('Non triangulated geometry "' + URL + '"');
+            Error('Non triangulated geometry "' + MeshURL + '"');
             Exit;
           end;
         // Read inputs
@@ -697,12 +786,220 @@ begin
           Exit;
         end;
 end;
+{$ENDREGION}
 
-procedure GetMaterial(const XML: TXML; const URL: string; out Material: TMaterial);
+{$REGION 'GetMaterial'}
+procedure GetMaterial(const XML: TXML; const URL: string; out NodeMaterial: TNodeMaterial);
+
+  function GetSampler(const XMLfx, XMLtex: TXML): string;
+  var
+    i : LongInt;
+    s : string;
+  begin
+    Result := '';
+    if XMLtex = nil then
+      Exit;
+
+    s := XMLtex.Params['texture'].Value;
+    with XMLfx['profile_COMMON'] do
+    begin
+      for i := 0 to Count - 1 do
+        if (NodeI[i].Tag = 'newparam') and (NodeI[i].Params['sid'].Value = s) then
+        begin
+          if NodeI[i]['sampler2D'] = nil then
+          begin
+            Error(s + ' is not 2d sampler');
+            Exit;
+          end;
+          s := NodeI[i]['sampler2D']['source'].Content;
+          break;
+        end;
+
+      for i := 0 to Count - 1 do
+        if (NodeI[i].Tag = 'newparam') and (NodeI[i].Params['sid'].Value = s) then
+        begin
+          s := NodeI[i]['surface']['init_from'].Content;
+          break;
+        end;
+    end;
+
+    with XML['library_images'] do
+      for i := 0 to Count - 1 do
+        if NodeI[i].Params['id'].Value = s then
+        begin
+          Result := NodeI[i]['init_from'].Content;
+          break;
+        end;
+
+    for i := Length(Result) downto 1 do
+      if Result[i] = '/' then
+      begin
+        if i = Length(Result) then
+          Result := ''
+        else
+          Result := Copy(Result, i + 1, Length(Result));
+        break;
+      end;
+    Info('Texture: "' + Result + '"');
+  end;
+
+  procedure AddDefine(const Define: string);
+  var
+    i : LongInt;
+  begin
+    with NodeMaterial do
+    begin
+    // if not in array
+      for i := 0 to Length(Defines) - 1 do
+        if Defines[i] = Define then
+          Exit;
+    // insert
+      for i := 0 to Length(Defines) - 1 do
+        if Defines[i] > Define then
+        begin
+          SetLength(Defines, Length(Defines) + 1);
+          Move(Defines[i], Defines[i + 1], (Length(Defines) - i - 1) * SizeOf(Defines[0]));
+          Defines[i] := Define;
+          Exit;
+        end;
+    end;
+  end;
+
+var
+  i, DCount : LongInt;
+  MatFX : string;
+  ShXML : TXML;
+  Stream : TStream;
+  ms : TMaterialSampler;
 begin
-  //
-end;
+  MatFX := '';
+  FillChar(NodeMaterial, SizeOf(NodeMaterial), 0);
+  NodeMaterial.URL := URL;
+// read material
+  with XML['library_materials'] do
+    for i := 0 to Count - 1 do
+      with NodeI[i] do
+        if Params['id'].Value = URL then
+        begin
+          NodeMaterial.Name := Params['name'].Value;
+          MatFX := ConvURL(Node['instance_effect'].Params['url'].Value);
+          break;
+        end;
+// read MatFX
+  if MatFX <> '' then
+    with XML['library_effects'] do
+      for i := 0 to Count - 1 do
+        if NodeI[i].Params['id'].Value = MatFX then
+          with NodeI[i].Node['profile_COMMON']['technique'] do
+          begin
+            ShXML := nil;
 
+            if Node['lambert'] <> nil then
+            begin
+              NodeMaterial.ShadeType := stLambert;
+              ShXML := Node['lambert'];
+            end else
+              if Node['blinn'] <> nil then
+              begin
+                NodeMaterial.ShadeType := stBlinn;
+                ShXML := Node['blinn'];
+              end else
+                if Node['phong'] <> nil then
+                begin
+                  NodeMaterial.ShadeType := stPhong;
+                  ShXML := Node['phong'];
+                end else
+                  Error('Unknown material type in "' + URL + '"');
+
+            with NodeMaterial.Params do
+            begin
+              DepthWrite := True;
+              AlphaTest  := 1;
+              CullFace   := True;
+              BlendType  := btNormal;
+              Diffuse    := Vec4f(1, 1, 1, 1);
+              Ambient    := Vec3f(0, 0, 0);
+              Reflect    := 1;
+              Specular   := Vec3f(1, 1, 1);
+              Shininess  := 10;
+            end;
+
+            if ShXML = nil then
+              Exit;
+
+            with ShXML, NodeMaterial, Params do
+            begin
+              if (Node['shininess'] <> nil) and (Node['shininess']['float'] <> nil) then
+              begin
+                Shininess := Conv(Node['shininess']['float'].Content, 0.0);
+                if (ShadeType = stBlinn) and (Shininess > EPS) then
+                  Shininess := 4 / Shininess;
+              end;
+              if (Node['reflectivity'] <> nil) and (Node['reflectivity']['float'] <> nil) then
+                Reflect := Conv(Node['reflectivity']['float'].Content, 0.0);
+            // Diffuse
+              if Node['diffuse'] <> nil then
+              begin
+                Sampler[msDiffuse]  := GetSampler(XML['library_effects'].NodeI[i], Node['diffuse']['texture']);
+                if Node['diffuse']['color'] <> nil then
+                  Diffuse := TVec4f(Pointer(@ParseFloat(Node['diffuse']['color'].Content)[0])^);
+              end;
+            // Specular
+              if Node['specular'] <> nil then
+              begin
+                Sampler[msSpecular] := GetSampler(XML['library_effects'].NodeI[i], Node['specular']['texture']);
+                if (Node['specular'] <> nil) and (Node['specular']['color'] <> nil) then
+                  Specular := TVec3f(Pointer(@ParseFloat(Node['specular']['color'].Content)[0])^);
+              end;
+            // Ambient
+              if Node['ambient'] <> nil then
+              begin
+                Sampler[msAmbient]    := GetSampler(XML['library_effects'].NodeI[i], Node['ambient']['texture']);
+                if Node['ambient']['color'] <> nil then
+                  Ambient := TVec3f(Pointer(@ParseFloat(Node['ambient']['color'].Content)[0])^);
+              end;
+            // Emission
+              if Node['emission'] <> nil then
+                Sampler[msEmission] := GetSampler(XML['library_effects'].NodeI[i], Node['emission']['texture']);
+            // Reflect
+              if Node['reflective'] <> nil then
+                Sampler[msReflect]  := GetSampler(XML['library_effects'].NodeI[i], Node['reflective']['texture']);
+            end;
+            if (Node['extra'] <> nil) and (Node['extra']['technique'] <> nil) and (Node['extra']['technique']['bump'] <> nil) then
+              NodeMaterial.Sampler[msNormal] := GetSampler(XML['library_effects'].NodeI[i], Node['extra']['technique']['bump']['texture']);
+
+            break;
+          end;
+  with NodeMaterial do
+  begin
+  // Set defines
+    if Sampler[msDiffuse]  <> '' then AddDefine('MAP_DIFFUSE');
+    if Sampler[msNormal]   <> '' then AddDefine('MAP_NORMAL');
+    if Sampler[msSpecular] <> '' then AddDefine('MAP_SPECULAR');
+    if Sampler[msAmbient]  <> '' then AddDefine('MAP_AMBIENT');
+    if Sampler[msReflect]  <> '' then AddDefine('MAP_REFLECT');
+    if Sampler[msEmission] <> '' then AddDefine('MAP_EMISSION');
+    AddDefine('FX_SHADE');
+    case ShadeType of
+      stPhong   : AddDefine('FX_PHONG');
+      stBlinn   : AddDefine('FX_BLINN');
+    end;
+  // Saving
+    Stream := TStream.Init('cache/' + NodeMaterial.Name + '.xmt', True);
+    Stream.Write(Params, SizeOf(Params));
+    Stream.WriteAnsi('xshader');
+    DCount := Length(Defines);
+    Stream.Write(DCount, SizeOf(DCount)); // Defines count
+    for i := 0 to DCount - 1 do
+      Stream.WriteAnsi(AnsiString(Defines[i]));
+    for ms := Low(ms) to High(ms) do
+      Stream.WriteAnsi(AnsiString(NodeMaterial.Sampler[ms]));
+    Stream.Free;
+  end;
+end;
+{$ENDREGION}
+
+{$REGION 'GetNodes'}
 procedure GetNodes(const MainXML: TXML; out Nodes: TNodeArray);
 
   procedure CollectNodes(const XML: TXML; Parent: LongInt);
@@ -748,8 +1045,8 @@ procedure GetNodes(const MainXML: TXML; out Nodes: TNodeArray);
             if MatNode <> nil then
               with MatNode['technique_common']['instance_material'] do
                 begin
-                  Nodes[j].MatURL  := ConvURL(Params['target'].Value);
-                  Nodes[j].MatName := Params['symbol'].Value;
+                  Nodes[j].MatURL := ConvURL(Params['target'].Value);
+                  GetMaterial(MainXML, Nodes[j].MatURL, Nodes[j].Material);
                 end;
 
             {$IFDEF DEBUG_NODE}
@@ -780,12 +1077,41 @@ end;
 var
   CamPos, CamAngle : TVec3f;
   Nodes  : TNodeArray;
+  TriCount, MeshCount : LongInt;
+  XML : TXML;
+  MeshMaterial : TMaterial;
+
+procedure InitNodeProc(NodeIdx: LongInt); stdcall;
+
+  function GetNodeMatrix(Idx: LongInt): TMat4f;
+  begin
+    if Nodes[Idx].Parent <> -1 then
+      Result := Nodes[Idx].Matrix * GetNodeMatrix(Nodes[Idx].Parent)
+    else
+      Result := Nodes[Idx].Matrix;
+  end;
+
+begin
+  with Nodes[NodeIdx] do
+    if GetMesh(XML, MeshURL, SkinURL, Source) then
+    begin
+      ValidMatrix(Matrix);
+      AMatrix := GetNodeMatrix(NodeIdx);
+      Nodes[NodeIdx].Mesh.Init(Nodes[NodeIdx].Source);
+    //  Node^.Source := nil;
+      Inc(TriCount, Length(Nodes[NodeIdx].Mesh.Index) div 3);
+      Inc(MeshCount);
+    end else
+      MeshURL := '';
+end;
+{$ENDREGION}
 
 procedure Convert(const FileName: string);
 var
-  i      : LongInt;
-  XML    : TXML;
-  Source : TSourceArray;
+  i : LongInt;
+var
+  Thread : array of TThread;
+  TID : LongInt;
 begin
   XML := TXML.Create(FileName);
   with XML['asset'] do
@@ -799,37 +1125,90 @@ begin
     end;
   end;
 
-  Writeln('Unit Scale : ', UnitScale:0:4);
-  Writeln('Up Axis    : ', UpAxisName[UpAxis]);
+  Info('Unit Scale : ' + Conv(UnitScale, 4));
+  Info('Up Axis    : ' + UpAxisName[UpAxis]);
   GetNodes(XML, Nodes);
+  TriCount := 0;
+  MeshCount := 0;
+// Init threads
+  SetLength(Thread, Render.CPUCount);
+  for i := 0 to Length(Thread) - 1 do
+    Thread[i].CPUMask := 1 shl i;
+  TID := 0;
+  IsMultiThread := True;
+// Init nodes content
+  Info('Convertation...');
+  for i := 0 to Length(Nodes) - 1 do
+    if (Nodes[i].MeshURL <> '') then //and (Pos('m_', Nodes[i].MeshURL) = 1) then
+    begin
+      while True do
+        if Thread[TID].Done then
+        begin
+          Thread[TID].Init(@InitNodeProc, Pointer(i), True);
+          break;
+        end else
+        begin
+          TID := (TID + 1) mod Length(Thread);
+          if TID = 0 then
+            Sleep(1);
+        end;
+    end else
+      Nodes[i].MeshURL := '';
+// Wait for all threads done
+  TID := 0;
+  while TID < Length(Thread) do
+    if Thread[TID].Done then
+      TID := TID + 1
+    else
+      Sleep(1);
+
+  Info(' Mesh : ' + Conv(MeshCount));
+  Info(' Tri  : ' + Conv(TriCount));
+
+// Init nodes render
+  Info('Optimization...');
   for i := 0 to Length(Nodes) - 1 do
     if Nodes[i].MeshURL <> '' then
-      if GetMesh(XML, Nodes[i].MeshURL, Nodes[i].SkinURL, Source) then
-      begin
-        Writeln('Mesh: ' + Nodes[i].MeshURL);
-        ValidMatrix(Nodes[i].Matrix);
-        Nodes[i].Mesh.Init(Source);
-      end;
+    begin
+      Nodes[i].Mesh.Optimize;
+      Nodes[i].Mesh.InitVBO;
+    end;
+
   XML.Free;
 end;
 
-procedure OnInit;
+procedure LoadShaders(const FileName: string; const Defines: array of string);
 begin
-  Convert('H:\room_maya.dae');
-//  Convert('H:\Projects\Pioner\PioModel\tanya_run.dae');
-  if ParamStr(1) <> '' then
-    Convert(ParamStr(1));
+  if MeshMaterial <> nil then
+    MeshMaterial.Free;
+  MeshMaterial := TMaterial.Load('test');
+end;
 
-  Input.Capture := True;
-  Render.DepthTest := True;
-  Render.CullFace  := True;
-  Screen.Resize(1280, 800);
+procedure OnInit;
+var
+  i : LongInt;
+begin
+i := Render.Time;
+//  Convert('H:\room_maya.dae');
+  Convert('media/tanya_run2.dae');
+//  Convert('media/vasya.dae');
+//  Convert('H:\Projects\N4\bin\tools\mesh\s_lvl1.dae');
+//  Convert('media/nod.dae');
+Writeln('Total time: ', Render.Time - i, ' ms');
+
+  CamPos := Vec3f(0, 1, 1); //  Vec3f(0, 0.01, 0.01);
+//--- T: 309855; M: 360
+// Time: 222989
+// Time: 101151 (no optimize)
+
+  LoadShaders('media/xshader.txt', ['MAP_DIFFUSE', 'MAP_NORMAL', 'FX_SHADE', 'FX_BLINN', 'FX_PLASTIC']);
 end;
 
 procedure OnFree;
 var
   i : LongInt;
 begin
+  MeshMaterial.Free;
   for i := 0 to Length(Nodes) - 1 do
     if Nodes[i].MeshURL <> '' then
       Nodes[i].Mesh.Free;
@@ -841,16 +1220,18 @@ var
 
   procedure UpdateCamera;
   const
-    CAM_SPEED = 5;
+    CAM_SPEED = 1;//0.005;
   var
     Dir    : TVec3f;
     VSpeed : TVec3f;
     PM, MM : TMat4f;
   begin
-    CamAngle.x := CamAngle.x + Input.Mouse.Delta.Y * 0.01;
-    CamAngle.y := CamAngle.y + Input.Mouse.Delta.X * 0.01;
-    CamAngle.x := Clamp(CamAngle.x, -pi/2 + EPS, pi/2 - EPS);
-
+    if Input.Down[KM_L] then
+    begin
+      CamAngle.x := CamAngle.x + Input.Mouse.Delta.Y * 0.01;
+      CamAngle.y := CamAngle.y + Input.Mouse.Delta.X * 0.01;
+      CamAngle.x := Clamp(CamAngle.x, -pi/2 + EPS, pi/2 - EPS);
+    end;
     Dir.x := sin(pi - CamAngle.y) * cos(CamAngle.x);
     Dir.y := -sin(CamAngle.x);
     Dir.z := cos(pi - CamAngle.y) * cos(CamAngle.x);
@@ -868,7 +1249,7 @@ var
     MM.Rotate(CamAngle.x, Vec3f(1, 0, 0));
     MM.Rotate(CamAngle.y, Vec3f(0, 1, 0));
     MM.Translate(CamPos * -1);
-    PM.Perspective(90, Screen.Width/Screen.Height, 0.01, 100);
+    PM.Perspective(90, Screen.Width/Screen.Height, 0.001, 100);
 
     gl.MatrixMode(GL_PROJECTION);
     gl.LoadMatrixf(PM);
@@ -876,58 +1257,38 @@ var
     gl.LoadMatrixf(MM);
   end;
 
-  function GetNodeMatrix(Idx: LongInt): TMat4f;
-  begin
-    if Nodes[Idx].Parent <> -1 then
-      Result := Nodes[Idx].Matrix * GetNodeMatrix(Nodes[Idx].Parent)
-    else
-      Result := Nodes[Idx].Matrix;
-  end;
-
 var
-  lp : TVec4f;
+  ViewPos, LightPos : TVec3f;
   V  : ^TVertex;
 begin
-//  Sleep(5);
-
-  Render.Clear(True, True);
   UpdateCamera;
 
-  with CamPos do
-    lp := Vec4f(x, y, z, 1);
-  gl.Enable(GL_COLOR_MATERIAL);
-  gl.Enable(GL_LIGHT0);
-  gl.Lightfv(GL_LIGHT0, GL_POSITION, @lp);
+  ViewPos  := CamPos;
+  LightPos := Vec3f(10, 10, 10);
+
+  Render.ViewPos     := ViewPos;
+  Render.LightPos[0] := LightPos;
 
   for i := 0 to Length(Nodes) - 1 do
     if Nodes[i].MeshURL <> '' then
       with Nodes[i].Mesh do
       begin
-        gl.PushMatrix;
-        gl.MultMatrixf(GetNodeMatrix(i));
-
-        gl.Enable(GL_LIGHTING);
-
-        gl.Color3f(1, 1, 1);
-
         V := Buffer[btVertex].DataPtr;
 
-        Buffer[btIndex].Enable;
-        Buffer[btVertex].Enable;
+        Buffer[btIndex].Bind;
+        Buffer[btVertex].Bind;
 
-        gl.EnableClientState(GL_VERTEX_ARRAY);
-        gl.EnableClientState(GL_NORMAL_ARRAY);
+        Render.ModelMatrix := Nodes[i].AMatrix;
 
-        gl.NormalPointer(GL_FLOAT, SizeOf(TVertex), @(V^.Normal));
-        gl.VertexPointer(3, GL_FLOAT, SizeOf(TVertex), @(V^.Coord));
-        gl.DrawElements(GL_TRIANGLES, Length(Index), GL_UNSIGNED_SHORT,  Buffer[btIndex].DataPtr);
+        MeshMaterial.Bind;
+        MeshMaterial.Attrib[maCoord].Value(SizeOf(TVertex), V^.Coord);
+        MeshMaterial.Attrib[maTangent].Value(SizeOf(TVertex), V^.Tangent);
+        MeshMaterial.Attrib[maBinormal].Value(SizeOf(TVertex), V^.Binormal);
+        MeshMaterial.Attrib[maNormal].Value(SizeOf(TVertex), V^.Normal);
+        MeshMaterial.Attrib[maTexCoord0].Value(SizeOf(TVertex), V^.TexCoord[0]);
 
-        gl.DisableClientState(GL_VERTEX_ARRAY);
-        gl.DisableClientState(GL_NORMAL_ARRAY);
-
-        Buffer[btIndex].Disable;
-        Buffer[btVertex].Disable;
-
+        gl.DrawElements(GL_TRIANGLES, Length(Index), GL_UNSIGNED_SHORT, Buffer[btIndex].DataPtr);
+{
         gl.Disable(GL_LIGHTING);
         gl.Color3f(0, 1, 0);
         with Nodes[i].Mesh.BBox do
@@ -951,15 +1312,11 @@ begin
             gl.Vertex3f(Min.x, Min.y, Max.z);
           gl.Endp;
         end;
-
-        gl.PopMatrix;
+}
       end;
-  if Input.Hit[KK_ESC] then
-    CoreX.Quit;
+
+  if Input.Hit[KK_SPACE] then
+    LoadShaders('media/xshader.txt', ['MAP_NORMAL', 'FX_SHADE']);
 end;
 
-begin
-  ReportMemoryLeaksOnShutdown := True;
-//  Screen.AntiAliasing := aa8x;
-  CoreX.Start(@OnInit, @OnFree, @OnRender);
 end.
