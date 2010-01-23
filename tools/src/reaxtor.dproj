@@ -1,8 +1,8 @@
 ﻿	<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 		<PropertyGroup>
-			<ProjectGuid>{5260C8CA-9923-4B62-8016-48EBDCAD2312}</ProjectGuid>
+			<ProjectGuid>{C8C00B24-EF55-438D-993B-B3E24B7A943A}</ProjectGuid>
 			<ProjectVersion>12.0</ProjectVersion>
-			<MainSource>xpk.dpr</MainSource>
+			<MainSource>reaxtor.dpr</MainSource>
 			<Config Condition="'$(Config)'==''">Debug</Config>
 			<DCC_DCCCompiler>DCC32</DCC_DCCCompiler>
 		</PropertyGroup>
@@ -20,11 +20,12 @@
 			<Base>true</Base>
 		</PropertyGroup>
 		<PropertyGroup Condition="'$(Base)'!=''">
-			<DCC_DependencyCheckOutputName>..\xpk.exe</DCC_DependencyCheckOutputName>
-			<DCC_ImageBase>00400000</DCC_ImageBase>
 			<DCC_ExeOutput>..\</DCC_ExeOutput>
+			<DCC_DependencyCheckOutputName>..\reaxtor.exe</DCC_DependencyCheckOutputName>
+			<DCC_UnitSearchPath>..\..\;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
 			<DCC_UnitAlias>WinTypes=Windows;WinProcs=Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;$(DCC_UnitAlias)</DCC_UnitAlias>
 			<DCC_Platform>x86</DCC_Platform>
+			<DCC_ImageBase>00400000</DCC_ImageBase>
 			<DCC_N>false</DCC_N>
 			<DCC_S>false</DCC_S>
 			<DCC_K>false</DCC_K>
@@ -41,7 +42,7 @@
 			<DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
 		</PropertyGroup>
 		<ItemGroup>
-			<DelphiCompile Include="xpk.dpr">
+			<DelphiCompile Include="reaxtor.dpr">
 				<MainSource>MainSource</MainSource>
 			</DelphiCompile>
 			<BuildConfiguration Include="Base">
@@ -62,6 +63,9 @@
 			<Borland.ProjectType/>
 			<BorlandProject>
 				<Delphi.Personality>
+					<Source>
+						<Source Name="MainSource">reaxtor.dpr</Source>
+					</Source>
 					<Parameters>
 						<Parameters Name="UseLauncher">False</Parameters>
 						<Parameters Name="LoadAllSymbols">True</Parameters>
@@ -94,9 +98,6 @@
 						<VersionInfoKeys Name="ProductVersion">1.0.0.0</VersionInfoKeys>
 						<VersionInfoKeys Name="Comments"/>
 					</VersionInfoKeys>
-					<Source>
-						<Source Name="MainSource">xpk.dpr</Source>
-					</Source>
 				</Delphi.Personality>
 			</BorlandProject>
 			<ProjectFileVersion>12</ProjectFileVersion>

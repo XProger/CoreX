@@ -1,0 +1,154 @@
+#ifdef VERTEX
+	attribute vec3 aCoord;
+	attribute vec3 aTangent;
+	attribute vec3 aBinormal;
+	attribute vec3 aNormal;
+	attribute vec2 aTexCoord0;
+	attribute vec2 aTexCoord1;
+	attribute vec4 aColor;
+	attribute vec2 aWeight;
+	attribute vec3 aJoint;
+
+	uniform mat4 uModelMatrix;
+	uniform vec3 uViewPos;
+	uniform vec3 uLightPos[2];
+
+	varying vec3 vNormal;
+	varying vec2 vTexCoord[2];
+	varying vec3 vViewVec;
+	varying vec3 vLightVec[2];
+	varying vec4 vColor;
+
+	void main(void)
+	{
+		vec3 rCoord = (uModelMatrix * vec4(aCoord, 1.0)).xyz;
+
+		vTexCoord[0] = aTexCoord0;
+		#ifdef MAP_LIGHT
+			vTexCoord[1] = aTexCoord1;
+		#endif
+
+		vViewVec = (uViewPos - rCoord);
+		vLightVec[0] = (uLightPos[0] - rCoord);
+		vLightVec[1] = (uLightPos[1] - rCoord);
+
+		#ifdef MAP_NORMAL
+			mat3 TBN = mat3(aTangent, aBinormal, aNormal) *  mat3(uModelMatrix);
+			vViewVec = vViewVec * TBN;
+			vLightVec[0] = vLightVec[0] * TBN;
+			vLightVec[1] *= TBN;	
+		#else
+			vNormal = aNormal * mat3(uModelMatrix);
+		#endif
+
+		#ifdef FX_COLOR
+			vColor = uColor;
+		#endif
+
+		gl_Position = gl_ModelViewProjectionMatrix * vec4(rCoord, 1.0);
+	}
+#endif
+
+#ifdef FRAGMENT
+	const int cDiffuse  = 0;
+	const int cAmbient  = 1;
+	const int cSpecular = 2;
+
+	uniform sampler2D sDiffuse;
+	uniform sampler2D sNormal;
+	uniform sampler2D sSpecular;
+	uniform sampler2D sLight;
+	uniform sampler2D sReflect;
+	uniform sampler2D sEmission;
+	uniform vec4 uMaterial[3];
+	
+	varying vec3 vNormal;
+	varying vec2 vTexCoord[2];
+	varying vec3 vViewVec;
+	varying vec3 vLightVec[2];
+	varying vec4 vColor;
+	
+	void main(void)
+	{
+	// Diffuse map
+		#ifdef MAP_DIFFUSE
+			vec4 rDiffuse = texture2D(sDiffuse, vTexCoord[0]);
+		#else
+			vec4 rDiffuse = vec4(1.0);
+		#endif
+		rDiffuse *= uMaterial[cDiffuse];
+	// Normal map
+		#ifdef MAP_NORMAL
+			vec4 rTexN = texture2D(sNormal, vTexCoord[0]);
+			vec3 rNormal = rTexN.wyz * 2.0 - 1.0;
+		#else
+			vec3 rNormal = vNormal;
+		#endif
+
+		rNormal = normalize(rNormal);
+		vec3 rViewVec = normalize(vViewVec);
+		vec3 rReflectVec = reflect(-rViewVec, rNormal);
+		vec3 rLightVec[2];
+		rLightVec[0] = normalize(vLightVec[0]);
+		rLightVec[1] = normalize(vLightVec[1]);
+
+
+	// Specular map
+		#ifdef MAP_SPECULAR
+			vec3 rSpecular = texture2D(sSpecular, vTexCoord[0]).xyz;
+		#else
+			#ifdef MAP_NORMAL
+				vec3 rSpecular = vec3(rTexN.x);
+			#else
+				vec3 rSpecular = vec3(1.0);
+			#endif
+		#endif
+	// Light map
+		#ifdef MAP_LIGHT
+			vec3 rLight = texture2D(sLight, vTexCoord[1]).xyz;
+		#else
+			vec3 rLight = vec3(1.0);
+		#endif	
+	// Reflection map
+		#ifdef MAP_REFLECT
+			vec3 rReflect = texture2D(sReflect, rReflectVec.xy * 0.5 + 0.5).xyz;
+		#else
+			vec3 rReflect = vec3(0.0);
+		#endif
+	// Emission map
+		#ifdef MAP_EMISSION
+			vec3 rEmission = texture2D(sEmission, vTexCoord[0]).xyz;
+		#else
+			vec3 rEmission = vec3(0.0);
+		#endif
+	// Light fx
+		#ifdef FX_SHADE
+			vec3 rD = vec3(max(0.0, dot(rLightVec[0], rNormal)) + uMaterial[cAmbient].xyz) * rDiffuse.xyz;
+		#else
+			vec3 rD = rDiffuse.xyz;
+		#endif
+
+		vec3 rR = rReflect * uMaterial[cAmbient].w * rSpecular;
+
+		float Sp = 0.0;
+	// Blinn fx
+		#ifdef FX_BLINN
+			Sp = pow(max(0.0, dot(normalize(rViewVec + rLightVec[0]), rNormal)), uMaterial[cSpecular].w);
+		#endif
+	// Phont fx
+		#ifdef FX_PHONG
+			Sp += pow(max(0.0, dot(rReflectVec, rLightVec[0])), uMaterial[cSpecular].w);
+		#endif
+		vec3 rS = Sp * uMaterial[cSpecular].xyz * rSpecular;
+	// Plastic fx
+		#ifdef FX_PLASTIC
+			rD *= dot(rViewVec, rNormal) * 0.5 + 0.5;
+		#endif
+
+		gl_FragColor = vec4((rD + rS + rR) * rLight + rEmission, rDiffuse.w);
+	// Vertex color fx
+		#ifdef FX_COLOR
+			gl_FragColor *= vColor;
+		#endif
+	}
+#endif
