@@ -14,14 +14,25 @@ unit CoreX;
 {====================================================================}
 interface
 
+{$DEFINE FPS_CAPTION}
+
+{$DEFINE NO_SOUND}
+//{$DEFINE NO_GUI}
+//{$DEFINE NO_SCENE}
+//{$DEFINE NO_FILESYS}
+//{$DEFINE NO_MATERIAL}
+{$DEFINE NO_SPRITE}
+{$DEFINE NO_INPUT_JOY}
+
 {$IFDEF WIN32}
   {$DEFINE WINDOWS}
+  {$SETPEFlAGS 1} // IMAGE_FILE_RELOCS_STRIPPED
 {$ENDIF}
 
-{$IFDEF LINUX}
+{$IF DEFINED(LINUX) OR DEFINED(DARWIN)}
   {$MACRO ON}
   {$DEFINE stdcall := cdecl} // For TGL
-{$ENDIF}
+{$IFEND}
 
 // Math ------------------------------------------------------------------------
 {$REGION 'Math'}
@@ -45,7 +56,7 @@ type
     function Lerp(const v: TVec2f; t: Single): TVec2f;
     function Min(const v: TVec2f): TVec2f;
     function Max(const v: TVec2f): TVec2f;
-    function Clamp(const Min, Max: TVec2f): TVec2f;
+    function Clamp(const MinClamp, MaxClamp: TVec2f): TVec2f;
     function Rotate(Angle: Single): TVec2f;
     function Angle(const v: TVec2f): Single;
   end;
@@ -70,7 +81,7 @@ type
     function Lerp(const v: TVec3f; t: Single): TVec3f;
     function Min(const v: TVec3f): TVec3f;
     function Max(const v: TVec3f): TVec3f;
-    function Clamp(const Min, Max: TVec3f): TVec3f;
+    function Clamp(const MinClamp, MaxClamp: TVec3f): TVec3f;
     function Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
     function Angle(const v: TVec3f): Single;
   end;
@@ -85,6 +96,7 @@ type
     class operator Multiply(const v: TVec4f; x: Single): TVec4f;
   {$ENDIF}
     function Dot(const v: TVec3f): Single;
+    function Lerp(const v: TVec4f; t: Single): TVec4f;
   end;
 
   TQuat = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
@@ -238,11 +250,10 @@ const
 
 // Utils -----------------------------------------------------------------------
 {$REGION 'Utils'}
-const
-  CRLF = #13#10;
-
 type
-  TResType = (rtTexture = 0, rtShader = 16, rtMeshIndex, rtMeshVertex, rtSound);
+  TResType = (rtTexture, rtTexture1, rtTexture2, rtTexture3, rtTexture4, rtTexture5, rtTexture6,
+              rtTexture7, rtTexture8, rtTexture9, rtTexture10, rtTexture11, rtTexture12,
+	      rtTexture13, rtTexture14, rtTexture15, rtShader, rtMeshIndex, rtMeshVertex, rtSound);
 
   TCharSet = set of AnsiChar;
 
@@ -274,7 +285,9 @@ type
     F      : File;
     Mem    : Pointer;
     procedure SetPos(Value: LongInt);
+  {$IFNDEF NO_FILESYS}
     procedure SetBlock(BPos, BSize: LongInt);
+  {$ENDIF}
   public
     procedure CopyFrom(const Stream: TStream);
     function Read(out Buf; BufSize: LongInt): LongInt;
@@ -412,6 +425,10 @@ type
     Ref  : LongInt;
   end;
 
+const
+  CRLF = #13#10;
+  NullRect : TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
+
   function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
   function Conv(const Str: string; Def: Single = 0): Single; overload;
   function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
@@ -429,6 +446,7 @@ type
 
 // FileSys ---------------------------------------------------------------------
 {$REGION 'FileSys'}
+{$IFNDEF NO_FILESYS}
 type
   TFilePack = object
   private
@@ -456,6 +474,7 @@ type
     procedure PathAdd(const PathName: string);
     procedure PathDel(const PathName: string);
   end;
+{$ENDIF}
 {$ENDREGION}
 
 // Screen ----------------------------------------------------------------------
@@ -508,17 +527,19 @@ type
 {$REGION 'Input'}
   TInputKey = (
   // Keyboard
-    KK_NONE, KK_PLUS, KK_MINUS, KK_TILDE,
-    KK_0, KK_1, KK_2, KK_3, KK_4, KK_5, KK_6, KK_7, KK_8, KK_9,
-    KK_A, KK_B, KK_C, KK_D, KK_E, KK_F, KK_G, KK_H, KK_I, KK_J, KK_K, KK_L, KK_M,
-    KK_N, KK_O, KK_P, KK_Q, KK_R, KK_S, KK_T, KK_U, KK_V, KK_W, KK_X, KK_Y, KK_Z,
-    KK_F1, KK_F2, KK_F3, KK_F4, KK_F5, KK_F6, KK_F7, KK_F8, KK_F9, KK_F10, KK_F11, KK_F12,
-    KK_ESC, KK_ENTER, KK_BACK, KK_TAB, KK_SHIFT, KK_CTRL, KK_ALT, KK_SPACE,
-    KK_PGUP, KK_PGDN, KK_END, KK_HOME, KK_LEFT, KK_UP, KK_RIGHT, KK_DOWN, KK_INS, KK_DEL,
+    ikNone, ikPlus, ikMinus, ikTilde,
+    ik0, ik1, ik2, ik3, ik4, ik5, ik6, ik7, ik8, ik9,
+    ikA, ikB, ikC, ikD, ikE, ikF, ikG, ikH, ikI, ikJ, ikK, ikL, ikM,
+    ikN, ikO, ikP, ikQ, ikR, ikS, ikT, ikU, ikV, ikW, ikX, ikY, ikZ,
+    ikF1, ikF2, ikF3, ikF4, ikF5, ikF6, ikF7, ikF8, ikF9, ikF10, ikF11, ikF12,
+    ikEsc, ikEnter, ikBack, ikTab, ikShift, ikCtrl, ikAlt, ikSpace,
+    ikPgUp, ikPgDown, ikEnd, ikHome, ikLeft, ikUp, ikRight, ikDown, ikIns, ikDel,
   // Mouse
-    KM_L, KM_R, KM_M, KM_WHUP, KM_WHDN,
+    ikMouseL, ikMouseR, ikMouseM, ikMouseWheelUp, ikMouseWheelDown
   // Joystick
-    KJ_1, KJ_2, KJ_3, KJ_4, KJ_5, KJ_6, KJ_7, KJ_8, KJ_9, KJ_10, KJ_11, KJ_12, KJ_13, KJ_14, KJ_15, KJ_16
+  {$IFNDEF NO_INPUT_JOY}
+    , ikJoy1, ikJoy2, ikJoy3, ikJoy4, ikJoy5, ikJoy6, ikJoy7, ikJoy8, ikJoy9, ikJoy10, ikJoy11, ikJoy12, ikJoy13, ikJoy14, ikJoy15, ikJoy16
+  {$ENDIF}
   );
 
   TMouseDelta = record
@@ -533,7 +554,7 @@ type
     Pos   : TMousePos;
     Delta : TMouseDelta;
   end;
-
+{$IFNDEF NO_INPUT_JOY}
   TJoyAxis = record
     X, Y, Z, R, U, V : LongInt;
   end;
@@ -546,6 +567,7 @@ type
     Axis : TJoyAxis;
     property Ready: Boolean read FReady;
   end;
+{$ENDIF}
 
   TInput = object
   private
@@ -563,7 +585,9 @@ type
     procedure SetCapture(Value: Boolean);
   public
     Mouse : TMouse;
+  {$IFNDEF NO_INPUT_JOY}
     Joy   : TJoy;
+  {$ENDIF}
     procedure Update;
     property LastKey: TInputKey read FLastKey;
     property Down[InputKey: TInputKey]: Boolean read GetDown;
@@ -575,6 +599,7 @@ type
 
 // Sound -----------------------------------------------------------------------
 {$REGION 'Sound'}
+{$IFNDEF NO_SOUND}
   TBufferData = record
     L, R : SmallInt;
   end;
@@ -615,17 +640,17 @@ type
   end;
 
   TSound = object
+    procedure Init;
+    procedure Free;
   private
     Device    : TDevice;
     Channel   : array [0..63] of TChannel;
     ChCount   : LongInt;
-    procedure Init;
-    procedure Free;
     procedure Render(Data: PBufferArray);
     procedure FreeChannel(Index: LongInt);
     function AddChannel(const Ch: TChannel): Boolean;
-  public
   end;
+{$ENDIF}
 {$ENDREGION}
 
 // OpenGL ----------------------------------------------------------------------
@@ -658,6 +683,8 @@ type
     GL_DEPTH_COMPONENT = $1902, GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA, GL_RGB, GL_RGBA, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_ALPHA8 = $803C, GL_LUMINANCE8 = $8040, GL_LUMINANCE8_ALPHA8 = $8045, GL_RGB8 = $8051, GL_RGBA8 = $8058, GL_BGR = $80E0, GL_BGRA, GL_RGB5 = $8050, GL_RGBA4 = $8056, GL_RGB5_A1 = $8057, GL_RG = $8227, GL_R16F = $822D, GL_R32F, GL_RG16F, GL_RG32F, GL_RGBA32F = $8814, GL_RGBA16F = $881A,
   // PolygonMode
     GL_POINT = $1B00, GL_LINE, GL_FILL,
+  // Smooth
+    GL_POINT_SMOOTH = $0B10, GL_LINE_SMOOTH = $0B20, GL_POLYGON_SMOOTH = $0B41,
   // List mode
     GL_COMPILE = $1300, GL_COMPILE_AND_EXECUTE,
   // Lighting
@@ -684,7 +711,7 @@ type
   // FBO
     GL_FRAMEBUFFER = $8D40, GL_RENDERBUFFER, GL_DEPTH_COMPONENT24 = $81A6, GL_COLOR_ATTACHMENT0 = $8CE0, GL_DEPTH_ATTACHMENT = $8D00, GL_FRAMEBUFFER_BINDING = $8CA6, GL_FRAMEBUFFER_COMPLETE = $8CD5,
   // Shaders
-    GL_FRAGMENT_SHADER = $8B30, GL_VERTEX_SHADER, GL_COMPILE_STATUS = $8B81, GL_LINK_STATUS, GL_VALIDATE_STATUS, GL_INFO_LOG_LENGTH,
+    GL_FRAGMENT_SHADER = $8B30, GL_VERTEX_SHADER, GL_GEOMETRY_SHADER = $8DD9, GL_GEOMETRY_VERTICES_OUT = $8DDA, GL_GEOMETRY_INPUT_TYPE, GL_GEOMETRY_OUTPUT_TYPE, GL_MAX_GEOMETRY_OUTPUT_VERTICES = $8DE0, GL_COMPILE_STATUS = $8B81, GL_LINK_STATUS, GL_VALIDATE_STATUS, GL_INFO_LOG_LENGTH,
   // VBO
     GL_ARRAY_BUFFER = $8892, GL_ELEMENT_ARRAY_BUFFER, GL_WRITE_ONLY = $88B9, GL_STATIC_DRAW = $88E4, GL_VERTEX_ARRAY = $8074, GL_NORMAL_ARRAY, GL_COLOR_ARRAY, GL_INDEX_ARRAY_EXT, GL_TEXTURE_COORD_ARRAY,
   // Queries
@@ -700,6 +727,8 @@ type
   public
     GetProc        : function (ProcName: PAnsiChar): Pointer; stdcall;
     SwapInterval   : function (Interval: LongInt): LongInt; stdcall;
+    GetIntegerv    : procedure (pname: TGLConst; params: Pointer); stdcall;
+    GetFloatv      : procedure (pname: TGLConst; params: Pointer); stdcall;
     GetString      : function (name: TGLConst): PAnsiChar; stdcall;
     Flush          : procedure;
     PolygonMode    : procedure (face, mode: TGLConst); stdcall;
@@ -728,11 +757,15 @@ type
     Lightfv        : procedure (light, pname: TGLConst; params: Pointer); stdcall;
     Materialfv     : procedure (face, pname: TGLConst; params: Pointer); stdcall;
     Viewport       : procedure (x, y, width, height: LongInt); stdcall;
+    Scissor        : procedure (x, y, width, height: LongInt); stdcall;
     Beginp         : procedure (mode: TGLConst); stdcall;
     Endp           : procedure;
+    PointSize      : procedure (size: Single); stdcall;
     LineWidth      : procedure (width: Single); stdcall;
     Color3f        : procedure (r, g, b: Single); stdcall;
     Color3fv       : procedure (const rgb: TVec3f); stdcall;
+    Color4ub       : procedure (r, g, b, a: Byte); stdcall;
+    Color4ubv      : procedure (var rgba: TRGBA); stdcall;
     Color4f        : procedure (r, g, b, a: Single); stdcall;
     Color4fv       : procedure (const rgba: TVec4f); stdcall;
     Vertex2f       : procedure (x, y: Single); stdcall;
@@ -777,6 +810,7 @@ type
     DeleteProgram     : procedure (_program: LongWord); stdcall;
     LinkProgram       : procedure (_program: LongWord); stdcall;
     UseProgram        : procedure (_program: LongWord); stdcall;
+    ProgramParameteri : procedure (_program: LongWord; pname: TGLConst; Value: LongInt); stdcall;
     GetProgramInfoLog : procedure (_program: LongWord; maxLength: LongInt; var length: LongInt; infoLog: PAnsiChar); stdcall;
     GetShaderiv       : procedure (_shader: LongWord; pname: TGLConst; params: Pointer); stdcall;
     CreateShader      : function  (shaderType: TGLConst): LongWord; stdcall;
@@ -802,9 +836,19 @@ type
 
 // Render ----------------------------------------------------------------------
 {$REGION 'Render'}
+const
+  MAX_LIGHTS = 3;
+
+type
   TBlendType = (btNone, btNormal, btAdd, btMult);
 
   TRenderSupport = (rsMT, rsVBO, rsFBO, rsGLSL, rsOQ);
+
+  TLight = record
+    Pos    : TVec3f;
+    Color  : TVec3f;
+    Radius : Single;
+  end;
 
   TRender = object
   private
@@ -816,6 +860,8 @@ type
     OldTime    : LongInt;
     FFPS       : LongInt;
     SBuffer    : array [TRenderSupport] of Boolean;
+    FViewport  : TRect;
+//    FScissor   : array of TRect;
     procedure Init;
     procedure Free;
     function GetTime: LongInt;
@@ -824,16 +870,21 @@ type
     procedure SetDepthTest(Value: Boolean);
     procedure SetDepthWrite(Value: Boolean);
     procedure SetCullFace(Value: Boolean);
+    function GetViewport: TRect;
+    procedure SetViewport(const Value: TRect);
+    procedure SetScissor(const Value: TRect);
   public
     ModelMatrix : TMat4f;
+    Ambient     : TVec3f;
     ViewPos     : TVec3f;
-    LightPos    : array [0..1] of TVec3f;
+    Light       : array [0..MAX_LIGHTS - 1] of TLight;
     function Support(RenderSupport: TRenderSupport): Boolean;
     procedure ResetBind;
     procedure Update;
     procedure Clear(ClearColor, ClearDepth: Boolean);
     procedure Color(R, G, B, A: Byte);
-    procedure Set2D(Width, Height: LongInt);
+    procedure Set2D(Width, Height: Single); overload;
+    procedure Set2D(X, Y, Width, Height: Single); overload;
     procedure Set3D(FOV, Aspect: Single; zNear: Single = 0.1; zFar: Single = 1000);
     procedure Quad(x, y, w, h, s, t, sw, th: Single);
     property Vendor: string read FVendor;
@@ -848,6 +899,8 @@ type
     property DepthTest: Boolean write SetDepthTest;
     property DepthWrite: Boolean write SetDepthWrite;
     property CullFace: Boolean write SetCullFace;
+    property Viewport: TRect read GetViewport write SetViewport;
+    property Scissor: TRect write SetScissor;
   end;
 {$ENDREGION}
 
@@ -859,7 +912,7 @@ type
 // Texture ---------------------------------------------------------------------
 {$REGION 'Texture'}
   TTexture = class(TResObject)
-    class function Init(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA): TTexture;
+    class function Init(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA; VType: TGLConst = GL_UNSIGNED_BYTE): TTexture;
     class function Load(const FileName: string): TTexture;
     destructor Destroy; override;
   private
@@ -867,7 +920,7 @@ type
     FWidth  : LongInt;
     FHeight : LongInt;
     Sampler : TGLConst;
-    constructor Create(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA); overload;
+    constructor Create(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA; VType: TGLConst = GL_UNSIGNED_BYTE); overload;
     constructor Create(const FileName: string); overload;
   public
     procedure SetData(X, Y, DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA);
@@ -924,6 +977,7 @@ type
 
 // Material --------------------------------------------------------------------
 {$REGION 'Material'}
+{$IFNDEF NO_MATERIAL}
   TMaterialParams = packed record
     DepthWrite : Boolean;
     AlphaTest  : Byte;
@@ -932,7 +986,7 @@ type
     case Integer of
       0 : (
           Diffuse   : TVec4f;
-          Ambient   : TVec3f;
+          Emission  : TVec3f;
           Reflect   : Single;
           Specular  : TVec3f;
           Shininess : Single;
@@ -940,17 +994,16 @@ type
       1 : (Uniform : array [0..2] of TVec4f);
   end;
 
-  TMaterialSampler = (msDiffuse, msNormal, msSpecular, msAmbient, msReflect, msEmission);
-  TMaterialAttrib  = (maCoord, maTangent, maBinormal, maNormal, maTexCoord0, maTexCoord1, maColor, maWeight, maJoint);
+  TMaterialSampler  = (msDiffuse, msNormal, msSpecular, msAmbient, msReflect, msEmission);
+  TMaterialAttrib   = (maCoord, maTangent, maBinormal, maNormal, maTexCoord0, maTexCoord1, maColor, maWeight, maJoint);
+  TMaterialUniform  = (muModelMatrix, muViewPos, muLightPos, muLightParam, muAmbient, muMaterial);
+
 
   TMaterial = class(TResObject)
     class function Load(const FileName: string): TMaterial;
     destructor Destroy; override;
   private
-    UMMatrix  : TShaderUniform;
-    UViewPos  : TShaderUniform;
-    ULightPos : TShaderUniform;
-    UMaterial : TShaderUniform;
+    Uniform : array [TMaterialUniform] of TShaderUniform;
     constructor Create(const FileName: string);
   public
     Shader  : TShader;
@@ -959,6 +1012,7 @@ type
     Params  : TMaterialParams;
     procedure Bind;
   end;
+{$ENDIF}
 {$ENDREGION}
 
 // Font ------------------------------------------------------------------------
@@ -968,6 +1022,7 @@ type
 
 // Sprite ----------------------------------------------------------------------
 {$REGION 'Sprite'}
+{$IFNDEF NO_SPRITE}
   TSpriteAnim = object
   private
     FName    : string;
@@ -1037,6 +1092,7 @@ type
     property Rows: LongInt read FRows;
     property Vertex[x, y: LongInt]: TVec2f read GetVertex write SetVertex;
   end;
+{$ENDIF}
 {$ENDREGION}
 
 // Mesh ------------------------------------------------------------------------
@@ -1088,6 +1144,7 @@ type
 
 // GUI -------------------------------------------------------------------------
 {$REGION 'GUI'}
+{$IFNDEF NO_GUI}
 type
   TAlign = (alNone, alLeft, alRight, alTop, alBottom, alClient);
   TAnchors = set of (akLeft, akRight, akTop, akBottom);
@@ -1124,8 +1181,8 @@ type
     Enabled  : Boolean;
     Caption  : string;
     Controls : array of TControl;
-    procedure AddCtrl(const Ctrl: TControl);
-    procedure DelCtrl(const Ctrl: TControl);
+    function AddCtrl(const Ctrl: TControl): TControl;
+    function DelCtrl(const Ctrl: TControl): Boolean;
     procedure BringToFront;
     procedure OnRender; virtual;
     property Parent: TControl read FParent;
@@ -1149,10 +1206,12 @@ type
     Skin : TTexture;
     procedure OnRender; override;
   end;
+{$ENDIF}
 {$ENDREGION}
 
 // Scene -----------------------------------------------------------------------
 {$REGION 'Scene'}
+{$IFNDEF NO_SCENE}
   TNode = class
     constructor Create(const Name: string);
     destructor Destroy; override;
@@ -1186,6 +1245,7 @@ type
     procedure Load(const FileName: string);
     procedure Free;
   end;
+{$ENDIF}
 {$ENDREGION}
 
 const
@@ -1198,14 +1258,22 @@ type
   TCoreProc = procedure;
 
 var
+{$IFNDEF NO_FILESYS}
   FileSys : TFileSys;
+{$ENDIF}
   gl      : TGL;
   Screen  : TScreen;
   Input   : TInput;
+{$IFNDEF NO_SOUND}
   Sound   : TSound;
+{$ENDIF}
   Render  : TRender;
+{$IFNDEF NO_GUI}
   GUI     : TGUI;
+{$ENDIF}
+{$IFNDEF NO_SCENE}
   Scene   : TScene;
+{$ENDIF}
 
   procedure Init;
   procedure Free;
@@ -1399,7 +1467,7 @@ const
   procedure EnterCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
   procedure LeaveCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
   procedure DeleteCriticalSection(var CS: TRTLCriticalSection); stdcall; external kernel32;
-  function CreateThread(lpThreadAttributes: Pointer; dwStackSize: LongWord; lpStartAddress: TThreadProc; lpParameter: Pointer; dwCreationFlags: LongWord; lpThreadId: Pointer): LongWord; stdcall; external kernel32;
+  function CreateThread(lpThreadAttributes: Pointer; dwStackSize: LongWord; lpStartAddress: Pointer; lpParameter: Pointer; dwCreationFlags: LongWord; lpThreadId: Pointer): LongWord; stdcall; external kernel32;
   function TerminateThread(hThread: LongWord; dwExitCode: LongWord): Boolean; stdcall; external kernel32;
   function SuspendThread(hThread: LongWord): LongWord; stdcall; external kernel32;
   function ResumeThread(hThread: LongWord): LongWord; stdcall; external kernel32;
@@ -1427,7 +1495,7 @@ const
     $2023,  8, // WGL_STENCIL_BITS
     0, 0);
 
-  KeyCodes : array [KK_PLUS..KK_DEL] of Word =
+  KeyCodes : array [ikPlus..ikDel] of Word =
      ($BB, $BD, $C0,
       $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
       $41, $42, $43, $44, $45, $46, $47, $48, $49, $4A, $4B, $4C, $4D, $4E, $4F, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $5A,
@@ -1442,11 +1510,15 @@ var
   DC, RC   : LongWord;
   TimeFreq  : Int64;
   TimeStart : Int64;
+{$IFNDEF NO_INPUT_JOY}
   JoyCaps  : TJoyCaps;
   JoyInfo  : TJoyInfo;
+{$ENDIF}
+{$IFNDEF NO_SOUND}
   SoundDF  : TWaveFormatEx;
   SoundDB  : array [0..1] of TWaveHdr;
   SoundCS  : TRTLCriticalSection;
+{$ENDIF}
 {$ENDIF}
 {$ENDREGION}
 
@@ -1600,14 +1672,14 @@ end;
 const
   PFDAttrib : array [0..11] of LongWord = (
     $0186A1,  0, // GLX_SAMPLES
-    $000005, {1,} // GLX_DOUBLEBUFFER
+    $000005,     // GLX_DOUBLEBUFFER
     $000004,  1, // GLX_RGBA
     $000002, 32, // GLX_BUFFER_SIZE
     $00000C, 24, // GLX_DEPTH_SIZE
     $00000D,  8, // GLX_STENCIL_SIZE
     0);
 
-  KeyCodes : array [KK_PLUS..KK_DEL] of Word =
+  KeyCodes : array [ikPlus..ikDel] of Word =
     ($3D, $2D, $60,
      $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
      $61, $62, $63, $64, $65, $66, $67, $68, $69, $6A, $6B, $6C, $6D, $6E, $6F, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A,
@@ -1627,8 +1699,104 @@ var
   SizesCount  : LongInt;
   DefSizeIdx  : LongInt;
 
+  TimeStart   : LongInt;
+
   WM_PROTOCOLS : LongWord;
   WM_DESTROY   : LongWord;
+{$ENDIF}
+{$ENDREGION}
+
+{$REGION 'MacOS System'}
+{$IFDEF DARWIN}
+  {$LINKFRAMEWORK Carbon}
+  {$LINKFRAMEWORK AGL}
+  {$LINKLIB dl}
+const
+  opengl32 = '/System/Library/Frameworks/OpenGL.framework/Libraries/libGL.dylib';
+  kDocumentWindowClass        = 6;
+  kWindowCloseBoxAttribute        = 1 shl 0;
+  kWindowCollapseBoxAttribute     = 1 shl 3;
+  kWindowStandardHandlerAttribute = 1 shl 25;
+
+type
+  TMacRect = record
+    top, left, bottom, right : SmallInt;
+  end;
+
+  TMacPoint = record
+    v, h : SmallInt;
+  end;
+
+  TMacEventRecord = record
+    what      : Word;
+    message   : LongWord;
+    when      : LongWord;
+    where     : TMacPoint;
+    modifiers : Word;
+  end;
+  TMacTitle = string[255];
+
+  TAGLPixelFormat = Pointer;
+  TAGLContext = Pointer;
+
+// Carbon
+  function CreateNewWindow(windowClass, attributes: LongWord; const contentBounds: TMacRect; var outWindow: LongWord): LongInt; mwpascal; external name '_CreateNewWindow';
+  function ReleaseWindow(window: LongWord): LongInt; mwpascal; external name '_ReleaseWindow';
+  procedure SelectWindow(window: LongWord); mwpascal; external name '_SelectWindow';
+  procedure ShowWindow(window: LongWord); mwpascal; external name '_ShowWindow';
+  function GetWindowPort(window: LongWord): Pointer; mwpascal; external name '_GetWindowPort';
+  function GetNextEvent(eventMask: Word; var Event: TMacEventRecord): Boolean; mwpascal; external name '_GetNextEvent';
+  procedure SetWTitle(window: LongWord; const title: TMacTitle); mwpascal; external name '_SetWTitle';
+  procedure Microseconds(var microTickCount: QWord); mwpascal; external name '_Microseconds';
+// AGL
+  function aglChoosePixelFormat(gdevs: Pointer; ndev: LongInt; attribs: Pointer): TAGLPixelFormat; cdecl; external;
+  procedure aglDestroyPixelFormat(pix: TAGLPixelFormat); cdecl; external;
+  function aglCreateContext(pix: TAGLPixelFormat; share: TAGLContext): TAGLContext; cdecl; external;
+  function aglDestroyContext(ctx: TAGLContext): Boolean; cdecl; external;
+  function aglSetCurrentContext(ctx: TAGLContext): Boolean; cdecl; external;
+  function aglSetDrawable(ctx: TAGLContext; draw: Pointer): Boolean; cdecl; external;
+  function aglSetFullScreen(ctx: TAGLContext; width, height, freq: LongInt; device: LongInt): Boolean; cdecl; external;
+  procedure aglSwapBuffers(ctx: TAGLContext); cdecl; external;
+
+  function dlopen(Name: PAnsiChar; Flags: LongInt): LongWord; cdecl; external;
+  function dlsym(Lib: LongWord; Name: PAnsiChar): Pointer; cdecl; external;
+  function dlclose(Lib: LongWord): LongInt; cdecl; external;
+
+function LoadLibraryA(Name: PAnsiChar): LongWord;
+begin
+  Result := dlopen(Name, 1);
+end;
+
+function FreeLibrary(LibHandle: LongWord): Boolean;
+begin
+  Result := dlclose(LibHandle) = 0;
+end;
+
+function GetProcAddress(LibHandle: LongWord; ProcName: PAnsiChar): Pointer;
+begin
+  Result := dlsym(LibHandle, ProcName);
+end;
+
+const
+  PFDAttrib : array [0..10] of LongWord = (
+    $38,  0, // AGL_SAMPLES_ARB
+    $05,     // AGL_DOUBLEBUFFER
+    $04,     // AGL_RGBA
+    $02, 32, // AGL_BUFFER_SIZE
+    $0C, 24, // AGL_DEPTH_SIZE
+    $0D,  8, // AGL_STENCIL_SIZE
+    0);
+
+  KeyCodes : array [ikPlus..ikDel] of Word =
+    ($3D, $2D, $60,
+     $30, $31, $32, $33, $34, $35, $36, $37, $38, $39,
+     $61, $62, $63, $64, $65, $66, $67, $68, $69, $6A, $6B, $6C, $6D, $6E, $6F, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A,
+     $FFBE, $FFBF, $FFC0, $FFC1, $FFC2, $FFC3, $FFC4, $FFC5, $FFC6, $FFC7, $FFC8, $FFC9,
+     $FF1B, $FF0D, $FF08, $FF09, $FFE1, $FFE3, $FFE9, $20, $FF55, $FF56, $FF57, $FF50, $FF51, $FF52, $FF53, $FF54, $FF63, $FFFF);
+
+var
+  Context : TAGLContext;
+  TimeStart : QWord;
 {$ENDIF}
 {$ENDREGION}
 
@@ -1737,9 +1905,10 @@ begin
   Result.y := CoreX.Max(y, v.y);
 end;
 
-function TVec2f.Clamp(const Min, Max: TVec2f): TVec2f;
+function TVec2f.Clamp(const MinClamp, MaxClamp: TVec2f): TVec2f;
 begin
-  Result := Vec2f(CoreX.Clamp(x, Min.x, Max.x), CoreX.Clamp(y, Min.y, Max.y));
+  Result := Vec2f(CoreX.Clamp(x, MinClamp.x, MaxClamp.x), 
+                  CoreX.Clamp(y, MinClamp.y, MaxClamp.y));
 end;
 
 function TVec2f.Rotate(Angle: Single): TVec2f;
@@ -1752,7 +1921,7 @@ end;
 
 function TVec2f.Angle(const v: TVec2f): Single;
 begin
-  Result := ArcCos(Dot(v) / sqrt(LengthQ * v.LengthQ))
+  Result := ArcTan2(x * v.y - y * v.x, x * v.x + y * v.y);
 end;
 {$ENDREGION}
 
@@ -1873,9 +2042,11 @@ begin
   Result.z := CoreX.Max(z, v.z);
 end;
 
-function TVec3f.Clamp(const Min, Max: TVec3f): TVec3f;
+function TVec3f.Clamp(const MinClamp, MaxClamp: TVec3f): TVec3f;
 begin
-  Result := Vec3f(CoreX.Clamp(x, Min.x, Max.x), CoreX.Clamp(y, Min.y, Max.y), CoreX.Clamp(z, Min.z, Max.z));
+  Result := Vec3f(CoreX.Clamp(x, MinClamp.x, MaxClamp.x), 
+                  CoreX.Clamp(y, MinClamp.y, MaxClamp.y), 
+		  CoreX.Clamp(z, MinClamp.z, MaxClamp.z));
 end;
 
 function TVec3f.Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
@@ -1945,6 +2116,11 @@ end;
 function TVec4f.Dot(const v: TVec3f): Single;
 begin
   Result := x * v.x + y * v.y + z * v.z + w;
+end;
+
+function TVec4f.Lerp(const v: TVec4f; t: Single): TVec4f;
+begin
+  Result := Self + (v - Self) * t;
 end;
 {$ENDREGION}
 
@@ -2476,7 +2652,7 @@ begin
     Dec(Result);
 end;
 
-function Tan(x: Single): Single;
+function Tan(x: Single): Single; assembler;
 asm
   fld x
   fptan
@@ -2484,7 +2660,7 @@ asm
   fwait
 end;
 
-procedure SinCos(Theta: Single; out Sin, Cos: Single);
+procedure SinCos(Theta: Single; out Sin, Cos: Single); assembler;
 asm
   fld Theta
   fsincos
@@ -2493,7 +2669,7 @@ asm
   fwait
 end;
 
-function ArcTan2(y, x: Single): Single;
+function ArcTan2(y, x: Single): Single; assembler;
 asm
   fld y
   fld x
@@ -2501,27 +2677,46 @@ asm
   fwait
 end;
 
-function ArcCos(x: Single): Single;
+function ArcCos(x: Single): Single; assembler;
 asm
+{
   fld x
   fmul st, st
   fsubr ONE
   fsqrt
   fld x
   fpatan
+}
+  fld1
+  fld    x
+  fst    st(2)
+  fmul   st(0), st(0)
+  fsubp
+  fsqrt
+  fxch
+  fpatan
 end;
 
-function ArcSin(x: Single): Single;
+function ArcSin(x: Single): Single; assembler;
 asm
+{
   fld x
   fld st
   fmul st, st
   fsubr ONE
   fsqrt
   fpatan
+}
+  fld1
+  fld    X
+  fst    st(2)
+  fmul   st(0), st(0)
+  fsubp
+  fsqrt
+  fpatan
 end;
 
-function Log2(const X: Single): Single;
+function Log2(const X: Single): Single; assembler;
 asm
   fld1
   fld X
@@ -2662,7 +2857,11 @@ end;
 
 class function TStream.Init(const FileName: string; RW: Boolean): TStream;
 begin
+{$IFNDEF NO_FILESYS}
   Result := FileSys.Open(FileName, RW);
+{$ELSE}
+  Result := nil;
+{$ENDIF}
 end;
 
 destructor TStream.Destroy;
@@ -2678,12 +2877,14 @@ begin
     Seek(F, FBPos + FPos);
 end;
 
+{$IFNDEF NO_FILESYS}
 procedure TStream.SetBlock(BPos, BSize: LongInt);
 begin
   FSize := BSize;
   FBPos := BPos;
   Pos := 0;
 end;
+{$ENDIF}
 
 procedure TStream.CopyFrom(const Stream: TStream);
 var
@@ -3469,6 +3670,7 @@ end;
 
 // FileSys =====================================================================
 {$REGION 'TFilePack'}
+{$IFNDEF NO_FILESYS}
 procedure TFilePack.Init(const PackName: string);
 var
   Stream   : TStream;
@@ -3507,9 +3709,11 @@ begin
     end;
   Result := False;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TFileSys'}
+{$IFNDEF NO_FILESYS}
 procedure TFileSys.Init;
 begin
   chdir(ExtractFileDir(ParamStr(0)));
@@ -3604,6 +3808,7 @@ begin
       SetLength(FPath, Length(FPath) - 1);
     end;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 // Screen ======================================================================
@@ -3624,7 +3829,7 @@ begin
     WM_ACTIVATEAPP :
       with Screen do
       begin
-        FActive := Word(wParam) = 1;
+        FActive := Word(WParam) = 1;
         if FullScreen then
         begin
           if FActive then
@@ -3636,6 +3841,7 @@ begin
         end;
         Input.Reset;
       end;
+
     WM_SIZE :
       begin
         GetClientRect(Screen.Handle, Rect);
@@ -3646,8 +3852,8 @@ begin
           GUI.Resize(0, 0, Screen.Width, Screen.Height);
           GUI.Realign;
         end;
+        Screen.Resize(Word(LParam), Word(LParam shr 16));
       end;
-//      Screen.Resize(Word(LParam), Word(LParam shr 16));
   // Set max window size
     WM_GETMINMAXINFO :
       TMinMaxInfo(Pointer(LParam)^).ptMaxTrackSize := MaxPoint;
@@ -3662,14 +3868,14 @@ begin
       if (WParam > 31) then
         Input.FText := Input.FText + Char(WParam);
   // Mouse
-    WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(KM_L, Msg = WM_LBUTTONDOWN);
-    WM_RBUTTONDOWN, WM_RBUTTONDOWN + 1 : Input.SetState(KM_R, Msg = WM_RBUTTONDOWN);
-    WM_MBUTTONDOWN, WM_MBUTTONDOWN + 1 : Input.SetState(KM_M, Msg = WM_MBUTTONDOWN);
+    WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(ikMouseL, Msg = WM_LBUTTONDOWN);
+    WM_RBUTTONDOWN, WM_RBUTTONDOWN + 1 : Input.SetState(ikMouseR, Msg = WM_RBUTTONDOWN);
+    WM_MBUTTONDOWN, WM_MBUTTONDOWN + 1 : Input.SetState(ikMouseM, Msg = WM_MBUTTONDOWN);
     WM_MOUSEWHEEL :
       begin
         Inc(Input.Mouse.Delta.Wheel, SmallInt(wParam  shr 16) div 120);
-        Input.SetState(KM_WHUP, SmallInt(wParam shr 16) > 0);
-        Input.SetState(KM_WHDN, SmallInt(wParam shr 16) < 0);
+        Input.SetState(ikMouseWheelUp, SmallInt(wParam shr 16) > 0);
+        Input.SetState(ikMouseWheelDown, SmallInt(wParam shr 16) < 0);
       end;
     else
       if Screen.FCustom then
@@ -3715,22 +3921,74 @@ begin
     ButtonPress, ButtonPress + 1 :
       begin
         case Event.xkey.KeyCode of
-          1 : Key := KM_L;
-          2 : Key := KM_R;
-          3 : Key := KM_M;
-          4 : Key := KM_WHUP;
-          5 : Key := KM_WHDN;
+          1 : Key := ikMouseL;
+          2 : Key := ikMouseR;
+          3 : Key := ikMouseM;
+          4 : Key := ikMouseWheelUp;
+          5 : Key := ikMouseWheelDown;
         else
           Key := KK_NONE;
         end;
         Input.SetState(Key, Event._type = ButtonPress);
         if Event._type = ButtonPress then
           case Key of
-            KM_WHUP : Inc(Input.Mouse.Delta.Wheel);
-            KM_WHDN : Dec(Input.Mouse.Delta.Wheel);
+            ikMouseWheelUp   : Inc(Input.Mouse.Delta.Wheel);
+            ikMouseWheelDown : Dec(Input.Mouse.Delta.Wheel);
           end;
       end;
   end;
+end;
+{$ENDIF}
+{$IFDEF DARWIN}
+function WndProc(inHandlerCallRef, inEvent, inUserData: Pointer): LongInt; cdecl;
+var
+  EventClass, EventKind, Key : LongWord;
+  Button : Word;
+begin
+  EventClass := GetEventClass(inEvent);
+  EventKind  := GetEventKind(inEvent);
+  case EventClass of
+    kEventClassWindow :
+      case EventKind of
+        kEventWindowClosed :
+          Quit;
+        kEventWindowActivated, kEventWindowDeactivated :
+          with Screen do
+          begin
+            FActive := EventKind = kEventWindowActivated;
+            if FullScreen then
+            begin
+            {
+              if FActive then
+                ShowWindow(Handle, SW_SHOW)
+              else
+                ShowWindow(Handle, SW_MINIMIZE);
+            }
+              FullScreen := FActive;
+              FFullScreen := True;
+            end;
+            Input.Reset;
+          end;
+      end;
+    kEventClassKeyboard :
+      begin
+        GetEventParameter(inEvent, kEventParamKeyCode, LongWord('magn'), nil, SizeOf(Key), nil, @Key);
+        Input.SetState(Input.Convert(Key), EventKind <> kEventRawKeyUp);
+      end;
+    kEventClassMouse :
+      if EventKind = kEventMouseWheelMoved then
+      begin
+        GetEventParameter(inEvent, kEventParamMouseWheelDelta, LongWord('long'), nil, SizeOf(Wheel), nil, @Wheel);
+        Inc(Input.Mouse.Delta.Wheel, Wheel);
+        Input.SetState(ikMouseWheelUp, Wheel > 0);
+        Input.SetState(ikMouseWheelDown, Wheel < 0);
+      end else
+      begin
+        GetEventParameter(inEvent, kEventParamMouseButton, LongWord('mbtn'), nil, SizeOf(Button), nil, @Button);
+        Input.SetState(TInputKey(Ord(ikMouseL) + Button - kEventMouseButtonPrimary), EventKind = kEventMouseDown);
+      end;
+  end;
+  Result := CallNextEventHandler(inHandlerCallRef, inEvent);
 end;
 {$ENDIF}
 
@@ -3847,34 +4105,77 @@ begin
   FFPSTime := Render.Time;
 end;
 {$ENDIF}
+{$IFDEF DARWIN}
+const
+  Events : array [0..8, 0..1] of LongWord = (
+    (kEventClassWindow, kEventWindowClosed),
+    (kEventClassWindow, kEventWindowActivated),
+    (kEventClassWindow, kEventWindowDeactivated),
+    (kEventClassKeyboard, kEventRawKeyDown),
+    (kEventClassKeyboard, kEventRawKeyUp),
+    (kEventClassKeyboard, kEventRawKeyRepeat),
+    (kEventClassMouse, kEventMouseDown),
+    (kEventClassMouse, kEventMouseUp),
+    (kEventClassMouse, kEventMouseWheelMoved)
+  );
+var
+  Size   : TMacRect;
+  Format : TAGLPixelFormat;
+begin
+  FWidth   := 800;
+  FHeight  := 600;
+  FCaption := 'CoreX';
+
+  Format  := aglChoosePixelFormat(nil, 0, @PFDAttrib);
+  Context := aglCreateContext(Format, nil);
+  aglDestroyPixelFormat(Format);
+
+  Size.Left := 0;
+  Size.Top  := 0;
+  Size.Right  := Size.Left + FWidth;
+  Size.Bottom := Size.Top + FHeight;
+
+  CreateNewWindow(kDocumentWindowClass, kWindowCloseBoxAttribute or kWindowCollapseBoxAttribute or kWindowStandardHandlerAttribute, Size, Handle);
+  SelectWindow(Handle);
+  ShowWindow(Handle);
+  aglSetDrawable(Context, GetWindowPort(Handle));
+  aglSetCurrentContext(Context);
+
+  InstallEventHandler(GetApplicationEventTarget, NewEventHandlerUPP(@WndProc), Length(Events), @Events, nil, nil);
+
+  Render.Init;
+  FFPSTime := Render.Time;
+end;
+{$ENDIF}
 
 procedure TScreen.Free;
-{$IFDEF WINDOWS}
 begin
+// Restore video mode
   FullScreen := False;
   Render.Free;
+{$IFDEF WINDOWS}
   wglMakeCurrent(0, 0);
   wglDeleteContext(RC);
   ReleaseDC(Handle, DC);
   if not FCustom then
     DestroyWindow(Handle);
-end;
 {$ENDIF}
 {$IFDEF LINUX}
-begin
-// Restore video mode
-  FullScreen := False;
   XRRFreeScreenConfigInfo(ScrConfig);
-  Render.Free;
-// OpenGL
   glXMakeCurrent(XDisp, 0, nil);
   XFree(XVisual);
   glXDestroyContext(XDisp, XContext);
-// Window
-  XDestroyWindow(XDisp, Handle);
+  if not FCustom then
+    XDestroyWindow(XDisp, Handle);
   XCloseDisplay(XDisp);
-end;
 {$ENDIF}
+{$IFDEF DARWIN}
+  aglSetCurrentContext(nil);
+  aglDestroyContext(Context);
+  if not FCustom then
+    ReleaseWindow(Handle);
+{$ENDIF}
+end;
 
 procedure TScreen.Update;
 {$IFDEF WINDOWS}
@@ -3897,6 +4198,13 @@ begin
     XNextEvent(XDisp, @Event);
     WndProc(Event);
   end;
+end;
+{$ENDIF}
+{$IFDEF DARWIN}
+var
+  Event : TMacEventRecord;
+begin
+  while GetNextEvent($FFFF, Event) do;
 end;
 {$ENDIF}
 
@@ -3987,6 +4295,37 @@ begin
   VSync := FVSync;
 end;
 {$ENDIF}
+{$IFDEF DARWIN}
+//var
+//  Size : TMacRect;
+begin                {
+  if FFullScreen then
+  begin
+    Size.Left := 0;
+    Size.Top  := 0;
+  end else
+  begin
+    Size.Left := FX;
+    Size.Top  := FY;
+  end;
+  Size.Right  := Size.Left + FWidth;
+  Size.Bottom := Size.Top + FHeight;
+
+  if Handle <> 0 then
+  begin
+    aglSetCurrentContext(nil);
+    ReleaseWindow(Handle);
+  end;
+
+  CreateNewWindow(kDocumentWindowClass, kWindowCloseBoxAttribute or kWindowCollapseBoxAttribute or kWindowStandardHandlerAttribute, Size, Handle);
+  SelectWindow(Handle);
+  ShowWindow(Handle);
+  aglSetDrawable(Context, GetWindowPort(Handle));
+  aglSetCurrentContext(Context);
+}
+  gl.Viewport(0, 0, Width, Height);
+end;
+{$ENDIF}
 
 procedure TScreen.SetFullScreen(Value: Boolean);
 {$IFDEF WINDOWS}
@@ -4043,6 +4382,10 @@ begin
   Restore;
 end;
 {$ENDIF}
+{$IFDEF DARWIN}
+begin
+end;
+{$ENDIF}
 
 procedure TScreen.SetVSync(Value: Boolean);
 begin
@@ -4062,6 +4405,9 @@ begin
 {$ENDIF}
 {$IFDEF LINUX}
   XStoreName(XDisp, Handle, PAnsiChar(Value));
+{$ENDIF}
+{$IFDEF DARWIN}
+  SetWTitle(Handle, Value);
 {$ENDIF}
 end;
 
@@ -4096,13 +4442,18 @@ begin
 {$IFDEF LINUX}
   glXSwapBuffers(XDisp, Handle);
 {$ENDIF}
+{$IFDEF DARWIN}
+  aglSwapBuffers(Context);
+{$ENDIF}
   Inc(FFPSIdx);
   if Render.Time - FFPSTime >= 1000 then
   begin
     Render.FFPS := FFPSIdx;
     FFPSIdx  := 0;
     FFPSTime := Render.Time;
-//    Caption := 'CoreX [FPS: ' + Conv(Render.FPS) + ']';
+  {$IFDEF FPS_CAPTION}
+    Caption := 'CoreX [FPS: ' + Conv(Render.FPS) + ']';
+  {$ENDIF}
   end;
 end;
 {$ENDREGION}
@@ -4111,18 +4462,20 @@ end;
 {$REGION 'TInput'}
 procedure TInput.Init;
 begin
-{$IFDEF WINDOWS}
-// Initialize Joystick
-  Joy.FReady := False;
-  if (joyGetNumDevs <> 0) and (joyGetDevCapsA(0, @JoyCaps, SizeOf(JoyCaps)) = 0) then
-    with JoyCaps, JoyInfo do
-    begin
-      dwSize  := SizeOf(JoyInfo);
-      dwFlags := $08FF; // JOY_RETURNALL or JOY_USEDEADZONE;
-      if wCaps and JOYCAPS_POVCTS > 0 then
-        dwFlags := dwFlags or JOY_RETURNPOVCTS;
-      Joy.FReady := joyGetPosEx(0, @JoyInfo) = 0;
-    end;
+{$IFNDEF NO_INPUT_JOY}
+  {$IFDEF WINDOWS}
+  // Initialize Joystick
+    Joy.FReady := False;
+    if (joyGetNumDevs <> 0) and (joyGetDevCapsA(0, @JoyCaps, SizeOf(JoyCaps)) = 0) then
+      with JoyCaps, JoyInfo do
+      begin
+        dwSize  := SizeOf(JoyInfo);
+        dwFlags := $08FF; // JOY_RETURNALL or JOY_USEDEADZONE;
+        if wCaps and JOYCAPS_POVCTS > 0 then
+          dwFlags := dwFlags or JOY_RETURNPOVCTS;
+        Joy.FReady := joyGetPosEx(0, @JoyInfo) = 0;
+      end;
+  {$ENDIF}
 {$ENDIF}
 // Reset key states
   Reset;
@@ -4149,7 +4502,7 @@ begin
       Result := Key;
       Exit;
     end;
-  Result := KK_NONE;
+  Result := ikNone;
 end;
 
 function TInput.GetDown(InputKey: TInputKey): Boolean;
@@ -4179,42 +4532,57 @@ begin
 end;
 
 procedure TInput.Update;
-var
 {$IFDEF WINDOWS}
+var
   Rect  : TRect;
   Pos   : TPoint;
   CPos  : TPoint;
-  i     : LongInt;
-  JKey  : TInputKey;
-  JDown : Boolean;
+  {$IFNDEF NO_INPUT_JOY}
+    i     : LongInt;
+    JKey  : TInputKey;
+    JDown : Boolean;
 
-  function AxisValue(Value, Min, Max: LongWord): LongInt;
-  begin
-    if Max - Min <> 0 then
-      Result := Round((Value + Min) / (Max - Min) * 200 - 100)
-    else
-      Result := 0;
-  end;
+    function AxisValue(Value, Min, Max: LongWord): LongInt;
+    begin
+      if Max - Min <> 0 then
+        Result := Round((Value + Min) / (Max - Min) * 200 - 100)
+      else
+        Result := 0;
+    end;
+  {$ENDIF}
 {$ENDIF}
 {$IFDEF LINUX}
+var
   WRoot, WChild, Mask : LongWord;
   X, Y, rX, rY        : longInt;
 {$ENDIF}
 begin
   FillChar(FHit, SizeOf(FHit), False);
   FText    := '';
-  FLastKey := KK_NONE;
+  FLastKey := ikNone;
   Mouse.Delta.Wheel := 0;
-  SetState(KM_WHUP, False);
-  SetState(KM_WHDN, False);
-{$IFDEF WINDOWS}
+  SetState(ikMouseWheelUp, False);
+  SetState(ikMouseWheelDown, False);
+
 // Mouse
-  GetWindowRect(Screen.Handle, Rect);
-  GetCursorPos(Pos);
+  {$IFDEF WINDOWS}
+    GetWindowRect(Screen.Handle, Rect);
+    GetCursorPos(Pos);
+  {$ENDIF}
+  {$IFDEF LINUX}
+    Rect := CoreX.Rect(0, 0, Width div 2, Height div 2);
+    XQueryPointer(XDisp, Handle, @WRoot, @WChild, @rX, @rY, @X, @Y, @Mask);
+  {$ENDIF}
+  {$IFDEF DARWIN}
+    Rect := CoreX.Rect(FX, FY, FX + Width div 2, FY + Height div 2);
+    GetGlobalMouse(Pos);
+  {$ENDIF}
   if not FCapture then
   begin
   // Calc mouse cursor pos (Client Space)
+  {$IFDEF WINDOWS}
     ScreenToClient(Screen.Handle, Pos);
+  {$ENDIF}
     Mouse.Delta.X := Pos.X - Mouse.Pos.X;
     Mouse.Delta.Y := Pos.Y - Mouse.Pos.Y;
     Mouse.Pos.X := Pos.X;
@@ -4230,7 +4598,15 @@ begin
       Mouse.Delta.Y := Pos.Y - CPos.Y;
     // Centering cursor
       if (Mouse.Delta.X <> 0) or (Mouse.Delta.Y <> 0) then
+      {$IFDEF WINDOWS}
         SetCursorPos(CPos.X, CPos.Y);
+      {$ENDIF}
+      {$IFDEF LINUX}
+        XWarpPointer(XDisp, XScr, Handle, 0, 0, 0, 0, CPos.X, CPos.Y);
+      {$ENDIF}
+      {$IFDEF DARWIN}
+        CGWarpMouseCursorPosition(CPos.X, CPos.Y);
+      {$ENDIF}
       Inc(Mouse.Pos.X, Mouse.Delta.X);
       Inc(Mouse.Pos.Y, Mouse.Delta.Y);
     end else
@@ -4239,6 +4615,9 @@ begin
       Mouse.Delta.X := 0;
       Mouse.Delta.Y := 0;
     end;
+
+{$IFNDEF NO_INPUT_JOY}
+{$IFDEF WINDOWS}
 // Joystick
   with Joy do
   begin
@@ -4260,7 +4639,7 @@ begin
       // Buttons
         for i := 0 to wNumButtons - 1 do
         begin
-          JKey  := TInputKey(Ord(KJ_1) + i);
+          JKey  := TInputKey(Ord(ikJoy1) + i);
           JDown := Input.Down[JKey];
           if (wButtons and (1 shl i) <> 0) xor JDown then
             Input.SetState(JKey, not JDown);
@@ -4268,36 +4647,13 @@ begin
       end;
   end;
 {$ENDIF}
-{$IFDEF LINUX}
-  with Screen do
-  begin
-      XQueryPointer(XDisp, Handle, @WRoot, @WChild, @rX, @rY, @X, @Y, @Mask);
-      if not FCapture then
-      begin
-        Mouse.Delta.X := X - Mouse.Pos.X;
-        Mouse.Delta.Y := Y - Mouse.Pos.Y;
-        Mouse.Pos.X := X;
-        Mouse.Pos.Y := Y;
-      end else
-        if Active then
-        begin
-          Mouse.Delta.X := X - Width div 2;
-          Mouse.Delta.Y := Y - Height div 2;
-          XWarpPointer(XDisp, XScr, Handle, 0, 0, 0, 0,  Width div 2, Height div 2);
-          Inc(Mouse.Pos.X, Mouse.Delta.X);
-          Inc(Mouse.Pos.Y, Mouse.Delta.Y);
-        end else
-        begin
-          Mouse.Delta.X := 0;
-          Mouse.Delta.Y := 0;
-        end;
-  end;
 {$ENDIF}
 end;
 {$ENDREGION}
 
 // Sound =======================================================================
 {$REGION 'TSample'}
+{$IFNDEF NO_SOUND}
 { TSample }
 class function TSample.Load(const FileName: string): TSample;
 begin
@@ -4361,9 +4717,11 @@ procedure TSample.SetVolume(Value: LongInt);
 begin
   FVolume := Min(100, Max(0, Value));
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TDevice'}
+{$IFNDEF NO_SOUND}
 { TDevice }
 procedure FillProc(WaveOut, Msg, Inst: LongWord; WaveHdr: PWaveHdr; Param2: LongWord); stdcall;
 begin
@@ -4419,9 +4777,11 @@ begin
     FreeMemory(Data);
   end;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TSound'}
+{$IFNDEF NO_SOUND}
 { TSound }
 procedure TSound.Init;
 begin
@@ -4510,8 +4870,7 @@ begin
     LeaveCriticalSection(SoundCS);
   end;
 end;
-
-
+{$ENDIF}
 {$ENDREGION}
 
 // Render ======================================================================
@@ -4521,9 +4880,16 @@ var
   pm, sm : LongWord;
 begin
   gl.Init;
+// Get start time
 {$IFDEF WINDOWS}
   QueryPerformanceFrequency(TimeFreq);
-  QueryPerformanceCounter(TimeStart);  
+  QueryPerformanceCounter(TimeStart);
+{$ENDIF}
+{$IFDEF LINUX}
+  TimeStart := Time;
+{$ENDIF}
+{$IFDEF DARWIN}
+  Microseconds(TimeStart);
 {$ENDIF}
   Screen.Restore;
   BlendType := btNormal;
@@ -4547,6 +4913,7 @@ begin
   SBuffer[rsGLSL] := @gl.CreateProgram <> nil;
 
 // Get number of processors
+  pm := 1;
 {$IFDEF WINDOWS}
   GetProcessAffinityMask(GetCurrentProcess, pm, sm);
 {$ENDIF}
@@ -4579,7 +4946,15 @@ var
   tv : TTimeVal;
 begin
   gettimeofday(tv, nil);
-  Result := tv.tv_sec * 1000 + tv.tv_usec div 1000; // FIX! Add TimeStart
+  Result := tv.tv_sec * 1000 + tv.tv_usec div 1000 - TimeStart; // FIX! Add TimeStart
+end;
+{$ENDIF}
+{$IFDEF DARWIN}
+var
+  T : QWord;
+begin
+  Microseconds(T);
+  Result := (T - TimeStart) div 1000;
 end;
 {$ENDIF}
 
@@ -4624,6 +4999,30 @@ begin
     gl.Enable(GL_CULL_FACE)
   else
     gl.Disable(GL_CULL_FACE);
+end;
+
+function TRender.GetViewport: TRect;
+begin
+  Result := FViewport;
+end;
+
+procedure TRender.SetViewport(const Value: TRect);
+begin
+  FViewport := Value;
+  gl.Viewport(Value.Left, Value.Top, Value.Right - Value.Left, Value.Bottom - Value.Top);
+end;
+
+procedure TRender.SetScissor(const Value: TRect);
+begin
+// fix!
+  if (Value.Left = 0) and (Value.Top = 0) and (Value.Right = 0) and (Value.Right = 0) then
+  begin
+    gl.Disable(GL_SCISSOR_TEST);
+  end else
+  begin
+    gl.Enable(GL_SCISSOR_TEST);
+    gl.Scissor(Value.Left, Value.Top, Value.Right, Value.Bottom);
+  end;
 end;
 
 function TRender.Support(RenderSupport: TRenderSupport): Boolean;
@@ -4673,12 +5072,20 @@ begin
   gl.Color4f(R/255, G/255, B/255, A/255);
 end;
 
-procedure TRender.Set2D(Width, Height: LongInt);
+procedure TRender.Set2D(Width, Height: Single);
 begin
   gl.MatrixMode(GL_PROJECTION);
   gl.LoadIdentity;
-//  gl.Ortho(-Width/2, Width/2, -Height/2, Height/2, -1, 1);
-  gl.Ortho(0, Width, Height, 0, -1, 1);
+  gl.Ortho(-Width/2, Width/2, -Height/2, Height/2, -1, 1);
+  gl.MatrixMode(GL_MODELVIEW);
+  gl.LoadIdentity;
+end;
+
+procedure TRender.Set2D(X, Y, Width, Height: Single);
+begin
+  gl.MatrixMode(GL_PROJECTION);
+  gl.LoadIdentity;
+  gl.Ortho(X, Width, Y, Height, -1, 1);
   gl.MatrixMode(GL_MODELVIEW);
   gl.LoadIdentity;
 end;
@@ -4718,9 +5125,9 @@ end;
 
 // Texture =====================================================================
 {$REGION 'TTexture'}
-class function TTexture.Init(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst): TTexture;
+class function TTexture.Init(DWidth, DHeight: LongInt; Data: Pointer; DType, VType: TGLConst): TTexture;
 begin
-  Result := TTexture.Create(DWidth, DHeight, Data, DType);
+  Result := TTexture.Create(DWidth, DHeight, Data, DType, VType);
 end;
 
 class function TTexture.Load(const FileName: string): TTexture;
@@ -4730,16 +5137,17 @@ begin
     Result := TTexture.Create(FileName + EXT_TEX);
 end;
 
-constructor TTexture.Create(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst);
+constructor TTexture.Create(DWidth, DHeight: LongInt; Data: Pointer; DType, VType: TGLConst);
 begin
   inherited Create(Conv(LongInt(Self)));
   FWidth  := DWidth;
   FHeight := DHeight;
   gl.GenTextures(1, @FID);
   gl.BindTexture(GL_TEXTURE_2D, FID);
-  gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, DType, GL_UNSIGNED_BYTE, Data);
+  gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, DType, VType, Data);
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  Sampler := GL_TEXTURE_2D;
 end;
 
 constructor TTexture.Create(const FileName: string);
@@ -4968,6 +5376,7 @@ begin
     begin
       gl.TexParameteri(Sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
       gl.TexParameteri(Sampler, GL_TEXTURE_MAX_LEVEL, TGLConst(RMips - 1));
+      gl.TexParameteri(Sampler, GL_TEXTURE_MAX_ANISOTROPY, TGLConst(8));
     end else
       gl.TexParameteri(Sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   end;
@@ -5131,10 +5540,20 @@ begin
   Stream.Read(Source[1], Stream.Size);
   Stream.Free;
 // Compiling
+//  DefinesStr := '#version 120' + CRLF + DefinesStr; // not necessary
   CSource := AnsiString(DefinesStr + ' VERTEX' + CRLF) + Source;
   Attach(GL_VERTEX_SHADER, CSource);
   CSource := AnsiString(DefinesStr + ' FRAGMENT' + CRLF) + Source;
   Attach(GL_FRAGMENT_SHADER, CSource);
+  if Pos(AnsiString('#ifdef GEOMETRY'), Source) > 0 then
+  begin
+    CSource := AnsiString(DefinesStr + ' GEOMETRY' + CRLF) + Source;
+    Attach(GL_GEOMETRY_SHADER, CSource);
+//    gl.GetIntegerv(GL_MAX_GEOMETRY_OUTPUT_VERTICES, @i);
+    gl.ProgramParameteri(FID, GL_GEOMETRY_VERTICES_OUT, 3);
+    gl.ProgramParameteri(FID, GL_GEOMETRY_INPUT_TYPE, Ord(GL_TRIANGLES));
+    gl.ProgramParameteri(FID, GL_GEOMETRY_OUTPUT_TYPE, Ord(GL_TRIANGLE_STRIP));
+  end;
 // Linking
   gl.LinkProgram(FID);
   gl.GetProgramiv(FID, GL_LINK_STATUS, @Status);
@@ -5189,6 +5608,7 @@ end;
 
 // Material ====================================================================
 {$REGION 'TMaterial'}
+{$IFNDEF NO_MATERIAL}
 class function TMaterial.Load(const FileName: string): TMaterial;
 begin
   Result := TMaterial(ResManager.GetRef(FileName + EXT_XMT));
@@ -5276,10 +5696,12 @@ begin
     Shader.Uniform(utInt, SamplerName[ms]).Value(i);
   end;
 
-  UMMatrix  := Shader.Uniform(utMat4, 'uModelMatrix');
-  UViewPos  := Shader.Uniform(utVec3, 'uViewPos');
-  ULightPos := Shader.Uniform(utVec3, 'uLightPos');
-  UMaterial := Shader.Uniform(utVec4, 'uMaterial');
+  Uniform[muModelMatrix] := Shader.Uniform(utMat4, 'uModelMatrix');
+  Uniform[muViewPos]     := Shader.Uniform(utVec3, 'uViewPos');
+  Uniform[muLightPos]    := Shader.Uniform(utVec3, 'uLightPos');
+  Uniform[muLightParam]  := Shader.Uniform(utVec4, 'uLightParam');
+  Uniform[muAmbient]     := Shader.Uniform(utVec3, 'uAmbient');
+  Uniform[muMaterial]    := Shader.Uniform(utVec4, 'uMaterial');
 
   for ma := Low(ma) to High(ma) do
     Attrib[ma] := Shader.Attrib(AttribName[ma].AType, AttribName[ma].Name);
@@ -5298,29 +5720,44 @@ end;
 procedure TMaterial.Bind;
 var
   i : LongInt;
+  LightPos   : array [0..MAX_LIGHTS - 1] of TVec3f;
+  LightParam : array [0..MAX_LIGHTS - 1] of TVec4f;
 begin
   Render.CullFace   := Params.CullFace;
   Render.BlendType  := Params.BlendType;
   Render.DepthWrite := Params.DepthWrite;
   Render.AlphaTest  := Params.AlphaTest;
 
+  for i := 0 to MAX_LIGHTS - 1 do
+  begin
+    LightPos[i]     := Render.Light[i].Pos;
+    LightParam[i].x := Render.Light[i].Color.x;
+    LightParam[i].y := Render.Light[i].Color.y;
+    LightParam[i].z := Render.Light[i].Color.z;
+    LightParam[i].w := Sqr(Render.Light[i].Radius);
+  end;
+
   if Shader <> nil then
   begin
     Shader.Bind;
-    UMMatrix.Value(Render.ModelMatrix);
-    UViewPos.Value(Render.ViewPos);
-    ULightPos.Value(Render.LightPos, 2);
-    UMaterial.Value(Params.Uniform, 3);
+    Uniform[muModelMatrix].Value(Render.ModelMatrix);
+    Uniform[muViewPos].Value(Render.ViewPos);
+    Uniform[muAmbient].Value(Render.Ambient);
+    Uniform[muLightPos].Value(LightPos, MAX_LIGHTS);
+    Uniform[muLightParam].Value(LightParam, MAX_LIGHTS);
+    Uniform[muMaterial].Value(Params.Uniform, 3);
   end;
 
   for i := 0 to Length(Texture) - 1 do
     if Texture[i] <> nil then
       Texture[i].Bind(i);
 end;
+{$ENDIF}
 {$ENDREGION}
 
 // Sprite ======================================================================
 {$REGION 'TSpriteAnimList'}
+{$IFNDEF NO_SPRITE}
 function TSpriteAnimList.GetItem(Idx: LongInt): TSpriteAnim;
 const
   NullAnim : TSpriteAnim = (FName: ''; FFrames: 1; FX: 0; FY: 0; FWidth: 1; FHeight: 1; FCX: 0; FCY: 0; FFPS: 1);
@@ -5359,9 +5796,11 @@ begin
     end;
   Result := -1;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TSprite'}
+{$IFNDEF NO_SPRITE}
 function TSprite.GetWidth: LongInt;
 begin
   if (CurIndex >= 0) then
@@ -5528,6 +5967,7 @@ begin
 
   gl.PopMatrix;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 // Mesh ========================================================================
@@ -5612,6 +6052,7 @@ end;
 
 // GUI =========================================================================
 {$REGION 'TControl'}
+{$IFNDEF NO_GUI}
 constructor TControl.Create(Left, Top, Width, Height: LongInt);
 begin
   Resize(Left, Top, Width, Height);
@@ -5758,15 +6199,16 @@ begin
     end;
 end;
 
-procedure TControl.AddCtrl(const Ctrl: TControl);
+function TControl.AddCtrl(const Ctrl: TControl): TControl;
 begin
+  Result := Ctrl;
   SetLength(Controls, Length(Controls) + 1);
   Controls[Length(Controls) - 1] := Ctrl;
   Ctrl.FParent := Self;
   Realign;
 end;
 
-procedure TControl.DelCtrl(const Ctrl: TControl);
+function TControl.DelCtrl(const Ctrl: TControl): Boolean;
 var
   i, j : LongInt;
 begin
@@ -5777,8 +6219,10 @@ begin
       for j := i to Length(Controls) - 2 do
         Controls[j] := Controls[j + 1];
       SetLength(Controls, Length(Controls) - 1);
-      break;
+      Result := True;
+      Exit;
     end;
+  Result := False;
 end;
 
 procedure TControl.BringToFront;
@@ -5803,6 +6247,7 @@ procedure TControl.OnRender;
 var
   i : LongInt;
 begin
+{
   with Rect do
   begin
     gl.Color4f(0.5, 0.5, 0.5, 1);
@@ -5821,13 +6266,16 @@ begin
       gl.Vertex2f(Right, Top + 1);
     gl.Endp;
   end;
+}
   for i := 0 to Length(Controls) - 1 do
     if Controls[i].Visible then
       Controls[i].OnRender;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TGUI'}
+{$IFNDEF NO_GUI}
 constructor TGUI.Create(Left, Top, Width, Height: LongInt);
 begin
   inherited;
@@ -5846,14 +6294,16 @@ begin
   Render.DepthTest := False;
   Render.CullFace  := False;
   Render.ResetBind;
-  gl.Viewport(0, 0, Screen.Width, Screen.Height);
-  Render.Set2D(Screen.Width, Screen.Height);
+  Render.Viewport := CoreX.Rect(0, 0, Screen.Width, Screen.Height);
+  Render.Set2D(0, Screen.Height, Screen.Width, 0);
   inherited;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 // Scene =======================================================================
 {$REGION 'TNode'}
+{$IFNDEF NO_SCENE}
 constructor TNode.Create(const Name: string);
 begin
   FRBBox := InfBox;
@@ -5974,6 +6424,7 @@ procedure TNode.OnRender;
 begin
   //
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TModel'}
@@ -5981,6 +6432,7 @@ end;
 {$ENDREGION}
 
 {$REGION 'TScene'}
+{$IFNDEF NO_SCENE}
 procedure TScene.Init;
 begin
   Node := TNode.Create('main');
@@ -5995,6 +6447,7 @@ procedure TScene.Free;
 begin
   Node.Free;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 // OpenGL ======================================================================
@@ -6012,10 +6465,12 @@ const
     'glXGetProcAddress',
     'glXSwapIntervalSGI',
   {$ENDIF}
-  {$IFDEF MACOS}
-    'aglGetProcAddress',
-    'aglSetInteger',
+  {$IFDEF DARWIN}
+    '',
+    '',
   {$ENDIF}
+    'glGetIntegerv',
+    'glGetFloatv',
     'glGetString',
     'glFlush',
     'glPolygonMode',
@@ -6044,11 +6499,15 @@ const
     'glLightfv',
     'glMaterialfv',
     'glViewport',
+    'glScissor',
     'glBegin',
     'glEnd',
+    'glPointSize',
     'glLineWidth',
     'glColor3f',
     'glColor3fv',
+    'glColor4ub',
+    'glColor4ubv',
     'glColor4f',
     'glColor4fv',
     'glVertex2f',
@@ -6091,6 +6550,7 @@ const
     'glDeleteProgram',
     'glLinkProgram',
     'glUseProgram',
+    'glProgramParameteriEXT',
     'glGetProgramInfoLog',
     'glGetShaderiv',
     'glCreateShader',
@@ -6120,19 +6580,27 @@ begin
   if Lib <> 0 then
   begin
     Proc := @Self;
+    {$IFNDEF DARWIN}
     Proc^[0] := GetProcAddress(Lib, ProcName[0]); // gl.GetProc
-    for i := 1 to High(ProcName) do
+    {$ENDIF}
+    for i := {$IFDEF DARWIN}2{$ELSE}1{$ENDIF} to High(ProcName) do
     begin
+      {$IFNDEF DARWIN}
       Proc^[i] := GetProc(ProcName[i]);
       if Proc^[i] = nil then
+      {$ENDIF}
         Proc^[i] := GetProcAddress(Lib, ProcName[i]);
+{
+      if Proc^[i] = nil then
+        Writeln('Error: ', ProcName[i]);
+}
     end;
   end;
 {$IFDEF WINDOWS}
   Set8087CW($133F);
 {$ELSE}
-  {$IF DEFINED(cpui386) or DEFINED(cpux86_64)}
-    SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
+  {$IF DEFINED(cpui386) OR DEFINED(cpux86_64)}
+  //  SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
   {$IFEND}
 {$ENDIF}
 end;
@@ -6148,20 +6616,34 @@ end;
 procedure Init;
 begin
   ResManager.Init;
+{$IFNDEF NO_FILESYS}
   FileSys.Init;
+{$ENDIF}
   Screen.Init;
   Input.Init;
+{$IFNDEF NO_SOUND}
   Sound.Init;
+{$ENDIF}
+{$IFNDEF NO_GUI}
   GUI := TGUI.Create(0, 0, Screen.Width, Screen.Height);
+{$ENDIF}
+{$IFNDEF NO_SCENE}
   Scene.Init;
+{$ENDIF}
 end;
 
 procedure Free;
 begin
+{$IFNDEF NO_SCENE}
   Scene.Free;
+{$ENDIF}
+{$IFNDEF NO_GUI}
   GUI.Free;
   GUI := nil;
+{$ENDIF}
+{$IFNDEF NO_SOUND}
   Sound.Free;
+{$ENDIF}
   Input.Free;
   Screen.Free;
   ResManager.Free;
