@@ -6,7 +6,7 @@ unit CoreX;
 {  Site    : http://xproger.mentalx.org                              }
 {====================================================================}
 { LICENSE:                                                           }
-{ Copyright (c) 2009, Timur "XProger" Gagiev                         }
+{ Copyright (c) 2010, Timur "XProger" Gagiev                         }
 { All rights reserved.                                               }
 {                                                                    }
 { Redistribution and use in source and binary forms, with or without }
@@ -14,13 +14,14 @@ unit CoreX;
 {====================================================================}
 interface
 
-{$DEFINE FPS_CAPTION}
+//{$DEFINE FPS_CAPTION}
 
-{$DEFINE NO_SOUND}
+//{$DEFINE NO_SOUND}
 //{$DEFINE NO_GUI}
 //{$DEFINE NO_SCENE}
 //{$DEFINE NO_FILESYS}
 //{$DEFINE NO_MATERIAL}
+//{$DEFINE NO_MESH}
 {$DEFINE NO_SPRITE}
 {$DEFINE NO_INPUT_JOY}
 
@@ -37,6 +38,34 @@ interface
 // Math ------------------------------------------------------------------------
 {$REGION 'Math'}
 type
+  TVec3b = record
+    x, y, z : ShortInt;
+  end;
+
+  TVec2ub = record
+    x, y : Byte;
+  end;
+
+  TVec3ub = record
+    x, y, z : Byte;
+  end;
+
+  TVec4ub = record
+    x, y, z, w : Byte;
+  end;
+
+  TVec2s = record
+    x, y : SmallInt;
+  end;
+
+  TVec3s = record
+    x, y, z : SmallInt;
+  end;
+
+  TVec4s = record
+    x, y, z, w : SmallInt;
+  end;
+
   TVec2f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     x, y : Single;
   {$IFNDEF FPC}
@@ -140,6 +169,7 @@ type
     procedure Translate(const v: TVec3f);
     procedure Rotate(Angle: Single; const Axis: TVec3f);
     procedure Scale(const v: TVec3f);
+    procedure LookAt(const Pos, Target, Up: TVec3f);
     procedure Ortho(Left, Right, Bottom, Top, ZNear, ZFar: Single);
     procedure Frustum(Left, Right, Bottom, Top, ZNear, ZFar: Single);
     procedure Perspective(FOV, Aspect, ZNear, ZFar: Single);
@@ -212,6 +242,7 @@ type
 const
   ONE     : Single = 1.0;
   INF     = 1 / 0;
+  NAN     = 0 / 0;
   EPS     = 1.E-05;
   deg2rad = pi / 180;
   rad2deg = 180 / pi;
@@ -224,7 +255,12 @@ const
   );
 
   function Vec2f(x, y: Single): TVec2f; inline;
+  function Vec3b(x, y, z: ShortInt): TVec3b; inline;
+  function Vec3ub(x, y, z: Byte): TVec3ub; inline;
+  function Vec3s(x, y, z: SmallInt): TVec3s; inline;
   function Vec3f(x, y, z: Single): TVec3f; inline;
+  function Vec4ub(x, y, z, w: Byte): TVec4ub; inline;
+  function Vec4s(x, y, z, w: SmallInt): TVec4s; inline;
   function Vec4f(x, y, z, w: Single): TVec4f; inline;
   function Quat(x, y, z, w: Single): TQuat; overload; inline;
   function Quat(Angle: Single; const Axis: TVec3f): TQuat; overload;
@@ -235,6 +271,7 @@ const
   function Max(x, y: Single): Single; overload; inline;
   function Clamp(x, Min, Max: LongInt): LongInt; overload; inline;
   function Clamp(x, Min, Max: Single): Single; overload; inline;
+  function ClampAngle(Angle: Single): Single; inline;
   function Lerp(x, y, t: Single): Single; inline;
   function Sign(x: Single): LongInt;
   function Ceil(const x: Single): LongInt;
@@ -246,6 +283,7 @@ const
   function ArcSin(x: Single): Single; assembler;
   function Log2(const X: Single): Single;
   function Pow(x, y: Single): Single;
+  function ToPow2(x: LongInt): LongInt;
 {$ENDREGION}
 
 // Utils -----------------------------------------------------------------------
@@ -345,8 +383,8 @@ type
   end;
 
   TXML = class
-    constructor Create(const FileName: string); overload;
-    constructor Create(const Text: string; BeginPos: LongInt); overload;
+    class function Load(const FileName: string): TXML;
+    constructor Create(const Text: string; BeginPos: LongInt);
     destructor Destroy; override;
   private
     FCount   : LongInt;
@@ -429,6 +467,8 @@ const
   CRLF = #13#10;
   NullRect : TRect = (Left: 0; Top: 0; Right: 0; Bottom: 0);
 
+  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
+  function RGBA(R, G, B, A: Byte): TRGBA; inline;
   function Conv(const Str: string; Def: LongInt = 0): LongInt; overload;
   function Conv(const Str: string; Def: Single = 0): Single; overload;
   function Conv(const Str: string; Def: Boolean = False): Boolean; overload;
@@ -440,8 +480,7 @@ const
   function Trim(const Str: string): string;
   function DeleteChars(const Str: string; Chars: TCharSet): string;
   function ExtractFileDir(const Path: string): string;
-  function Rect(Left, Top, Right, Bottom: LongInt): TRect; inline;
-  function RGBA(R, G, B, A: Byte): TRGBA; inline;
+  function MemCmp(p1, p2: Pointer; Size: LongInt): LongInt;
 {$ENDREGION}
 
 // FileSys ---------------------------------------------------------------------
@@ -574,7 +613,7 @@ type
     FCapture    : Boolean;
     FDown, FHit : array [TInputKey] of Boolean;
     FLastKey    : TInputKey;
-    FText       : string;
+    FText       : WideString;
     procedure Init;
     procedure Free;
     procedure Reset;
@@ -593,7 +632,7 @@ type
     property Down[InputKey: TInputKey]: Boolean read GetDown;
     property Hit[InputKey: TInputKey]: Boolean read GetHit;
     property Capture: Boolean read FCapture write SetCapture;
-    property Text: string read FText;
+    property Text: WideString read FText;
   end;
 {$ENDREGION}
 
@@ -606,14 +645,18 @@ type
   PBufferArray = ^TBufferArray;
   TBufferArray = array [0..1] of TBufferData;
 
+  PSmallIntArray = ^TSmallIntArray;
+  TSmallIntArray = array [0..1] of SmallInt;
+
   TSample = class(TResObject)
+    constructor Create(Size: LongInt; Data: PSmallIntArray); overload;
     class function Load(const FileName: string): TSample;
     destructor Destroy; override;
   private
     FVolume : LongInt;
     DLength : LongInt;
-    Data    : PByteArray;
-    constructor Create(const FileName: string);
+    Data    : PSmallIntArray;
+    constructor Create(const FileName: string); overload;
     procedure SetVolume(Value: LongInt);
   public
     Frequency : LongInt;
@@ -623,6 +666,7 @@ type
 
   TChannel = record
     Sample  : TSample;
+    Volume  : LongInt;
     Offset  : LongInt;
     Loop    : Boolean;
     Playing : Boolean;
@@ -668,7 +712,7 @@ type
   // Blending Factor
     GL_ZERO = 0, GL_ONE, GL_SRC_COLOR = $0300, GL_ONE_MINUS_SRC_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_DST_COLOR = $0306, GL_ONE_MINUS_DST_COLOR, GL_SRC_ALPHA_SATURATE,
   // DrawBuffer Mode
-    GL_FRONT = $0404, GL_BACK, GL_FRONT_AND_BACK = $0408,
+    GL_NONE = 0, GL_FRONT = $0404, GL_BACK, GL_FRONT_AND_BACK = $0408,
   // Pixel params
     GL_UNPACK_ALIGNMENT = $0CF5,
   // Tests
@@ -680,7 +724,7 @@ type
   // Matrix Mode
     GL_MODELVIEW = $1700, GL_PROJECTION, GL_TEXTURE,
   // Pixel Format
-    GL_DEPTH_COMPONENT = $1902, GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA, GL_RGB, GL_RGBA, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_ALPHA8 = $803C, GL_LUMINANCE8 = $8040, GL_LUMINANCE8_ALPHA8 = $8045, GL_RGB8 = $8051, GL_RGBA8 = $8058, GL_BGR = $80E0, GL_BGRA, GL_RGB5 = $8050, GL_RGBA4 = $8056, GL_RGB5_A1 = $8057, GL_RG = $8227, GL_R16F = $822D, GL_R32F, GL_RG16F, GL_RG32F, GL_RGBA32F = $8814, GL_RGBA16F = $881A,
+    GL_DEPTH_COMPONENT = $1902, GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA, GL_RGB, GL_RGBA, GL_LUMINANCE, GL_LUMINANCE_ALPHA, GL_DEPTH_COMPONENT24 = $81A6, GL_ALPHA8 = $803C, GL_LUMINANCE8 = $8040, GL_LUMINANCE8_ALPHA8 = $8045, GL_RGB8 = $8051, GL_RGBA8 = $8058, GL_BGR = $80E0, GL_BGRA, GL_RGB5 = $8050, GL_RGBA4 = $8056, GL_RGB5_A1 = $8057, GL_RG = $8227, GL_R16F = $822D, GL_R32F, GL_RG16F, GL_RG32F, GL_RGBA32F = $8814, GL_RGBA16F = $881A,
   // PolygonMode
     GL_POINT = $1B00, GL_LINE, GL_FILL,
   // Smooth
@@ -702,14 +746,14 @@ type
   // Texture Filter
     GL_NEAREST = $2600, GL_LINEAR, GL_NEAREST_MIPMAP_NEAREST = $2700, GL_LINEAR_MIPMAP_NEAREST, GL_NEAREST_MIPMAP_LINEAR, GL_LINEAR_MIPMAP_LINEAR, GL_TEXTURE_MAG_FILTER = $2800, GL_TEXTURE_MIN_FILTER,
   // Texture Wrap Mode
-    GL_TEXTURE_WRAP_S = $2802, GL_TEXTURE_WRAP_T, GL_REPEAT = $2901, GL_CLAMP_TO_EDGE = $812F, GL_TEXTURE_BASE_LEVEL = $813C, GL_TEXTURE_MAX_LEVEL,
+    GL_TEXTURE_WRAP_S = $2802, GL_TEXTURE_WRAP_T, GL_TEXTURE_WRAP_R = $8072, GL_REPEAT = $2901, GL_CLAMP_TO_EDGE = $812F, GL_TEXTURE_BASE_LEVEL = $813C, GL_TEXTURE_MAX_LEVEL,
   // Textures
     GL_TEXTURE_2D = $0DE1, GL_TEXTURE0 = $84C0, GL_TEXTURE_MAX_ANISOTROPY = $84FE, GL_MAX_TEXTURE_MAX_ANISOTROPY, GL_GENERATE_MIPMAP = $8191,
     GL_TEXTURE_CUBE_MAP = $8513, GL_TEXTURE_CUBE_MAP_POSITIVE_X = $8515, GL_TEXTURE_CUBE_MAP_NEGATIVE_X, GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y, GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
   // Compressed Textures
     GL_COMPRESSED_RGB_S3TC_DXT1 = $83F0, GL_COMPRESSED_RGBA_S3TC_DXT1, GL_COMPRESSED_RGBA_S3TC_DXT3, GL_COMPRESSED_RGBA_S3TC_DXT5,
   // FBO
-    GL_FRAMEBUFFER = $8D40, GL_RENDERBUFFER, GL_DEPTH_COMPONENT24 = $81A6, GL_COLOR_ATTACHMENT0 = $8CE0, GL_DEPTH_ATTACHMENT = $8D00, GL_FRAMEBUFFER_BINDING = $8CA6, GL_FRAMEBUFFER_COMPLETE = $8CD5,
+    GL_FRAMEBUFFER = $8D40, GL_RENDERBUFFER, GL_COLOR_ATTACHMENT0 = $8CE0, GL_DEPTH_ATTACHMENT = $8D00, GL_FRAMEBUFFER_BINDING = $8CA6, GL_FRAMEBUFFER_COMPLETE = $8CD5,
   // Shaders
     GL_FRAGMENT_SHADER = $8B30, GL_VERTEX_SHADER, GL_GEOMETRY_SHADER = $8DD9, GL_GEOMETRY_VERTICES_OUT = $8DDA, GL_GEOMETRY_INPUT_TYPE, GL_GEOMETRY_OUTPUT_TYPE, GL_MAX_GEOMETRY_OUTPUT_VERTICES = $8DE0, GL_COMPILE_STATUS = $8B81, GL_LINK_STATUS, GL_VALIDATE_STATUS, GL_INFO_LOG_LENGTH,
   // VBO
@@ -739,6 +783,9 @@ type
     TexParameteri  : procedure (target, pname, param: TGLConst); stdcall;
     TexImage2D     : procedure (target: TGLConst; level: LongInt; internalformat: TGLConst; width, height, border: LongInt; format, _type: TGLConst; data: Pointer); stdcall;
     TexSubImage2D  : procedure (target: TGLConst; level, x, y, width, height: LongInt; format, _type: TGLConst; data: Pointer); stdcall;
+    GetTexImage    : procedure (target: TGLConst; level: LongInt; format, _type: TGLConst; data: Pointer); stdcall;
+    GenerateMipmap : procedure (target: TGLConst); stdcall;
+    CopyTexSubImage2D    : procedure (target: TGLConst; level, xoffset, yoffset, x, y, width, height: LongInt); stdcall;
     CompressedTexImage2D : procedure (target: TGLConst; level: LongInt; internalformat: TGLConst; width, height, border, imageSize: LongInt; data: Pointer); stdcall;
     ActiveTexture        : procedure (texture: TGLConst); stdcall;
     ClientActiveTexture  : procedure (texture: TGLConst); stdcall;
@@ -749,6 +796,7 @@ type
     StencilMask    : procedure (mask: LongWord); stdcall;
     Enable         : procedure (cap: TGLConst); stdcall;
     Disable        : procedure (cap: TGLConst); stdcall;
+    CullFace       : procedure (mode: TGLConst); stdcall;
     AlphaFunc      : procedure (func: TGLConst; factor: Single); stdcall;
     BlendFunc      : procedure (sfactor, dfactor: TGLConst); stdcall;
     StencilFunc    : procedure (func: TGLConst; ref: LongInt; mask: LongWord); stdcall;
@@ -796,6 +844,8 @@ type
     Ortho           : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     Frustum         : procedure (left, right, bottom, top, zNear, zFar: Double); stdcall;
     ReadPixels      : procedure (x, y, width, height: LongInt; format, _type: TGLConst; pixels: Pointer); stdcall;
+    DrawBuffer      : procedure (mode: TGLConst); stdcall;
+    ReadBuffer      : procedure (mode: TGLConst); stdcall;
   // VBO
     GenBuffers      : procedure (n: LongInt; buffers: Pointer); stdcall;
     DeleteBuffers   : procedure (n: LongInt; const buffers: Pointer); stdcall;
@@ -831,6 +881,46 @@ type
     EnableVertexAttribArray  : procedure (index: LongWord); stdcall;
     DisableVertexAttribArray : procedure (index: LongWord); stdcall;
     VertexAttribPointer      : procedure (index: LongWord; size: LongInt; _type: TGLConst; normalized: Boolean; stride: LongInt; const ptr: Pointer); stdcall;
+  // FBO
+    DrawBuffers             : procedure (n: LongInt; bufs: Pointer); stdcall;
+    GenFramebuffers         : procedure (n: LongInt; framebuffers: Pointer); stdcall;
+    DeleteFramebuffers      : procedure (n: LongInt; framebuffers: Pointer); stdcall;
+    BindFramebuffer         : procedure (target: TGLConst; framebuffer: LongWord); stdcall;
+    FramebufferTexture2D    : procedure (target, attachment, textarget: TGLConst; texture: LongWord; level: LongInt); stdcall;
+    FramebufferRenderbuffer : procedure (target, attachment, renderbuffertarget: TGLConst; renderbuffer: LongWord); stdcall;
+    CheckFramebufferStatus  : function  (target: TGLConst): TGLConst; stdcall;
+    GenRenderbuffers        : procedure (n: LongInt; renderbuffers: Pointer); stdcall;
+    DeleteRenderbuffers     : procedure (n: LongInt; renderbuffers: Pointer); stdcall;
+    BindRenderbuffer        : procedure (target: TGLConst; renderbuffer: LongWord); stdcall;
+    RenderbufferStorage     : procedure (target, internalformat: TGLConst; width, height: LongInt); stdcall;
+  end;
+{$ENDREGION}
+
+// Camera ----------------------------------------------------------------------
+{$REGION 'TCamera'}
+  TCameraMode = (cmFree, cmTarget, cmLookAt);
+  TCameraProj = (cpPersp, cpOrtho);
+
+  TCamera = object
+    procedure Init(CameraMode: TCameraMode = cmFree; CameraProj: TCameraProj = cpPersp);
+  public
+    Mode   : TCameraMode;
+    Proj   : TCameraProj;
+    Pos    : TVec3f;
+    Target : TVec3f;
+    Angle  : TVec3f;
+    Dist   : Single;
+    FOV    : Single;
+    ZNear  : Single;
+    ZFar   : Single;
+    Planes : array [0..5] of TVec4f;
+    ViewMatrix : TMat4f;
+    ProjMatrix : TMat4f;
+    procedure UpdateMatrix;
+    procedure UpdatePlanes;
+    procedure Setup;
+    function Visible(const Box: TBox): Boolean; overload;
+    function Visible(const Sphere: TSphere): Boolean; overload;
   end;
 {$ENDREGION}
 
@@ -842,12 +932,38 @@ const
 type
   TBlendType = (btNone, btNormal, btAdd, btMult);
 
+  TCullFace = (cfNone, cfFront, cfBack);
+
   TRenderSupport = (rsMT, rsVBO, rsFBO, rsGLSL, rsOQ);
 
+  TTexture = class;
+  TTextureTarget = (ttTex2D, ttTexCubeXp, ttTexCubeXn, ttTexCubeYp, ttTexCubeYn, ttTexCubeZp, ttTexCubeZn);
+
   TLight = record
+    ShadowMap : TTexture;
+    Matrix    : TMat4f;
     Pos    : TVec3f;
     Color  : TVec3f;
     Radius : Single;
+  end;
+
+  TRenderMode = (rmNormal, rmShadow);
+
+  TRenderTargetType = (rtColor, rtDepth);
+
+  TRenderChannel = (rcDepth, rcColor0, rcColor1, rcColor2, rcColor3, rcColor4, rcColor5, rcColor6, rcColor7);
+
+  TRenderTarget = class
+    constructor Create(Width, Height: LongInt; DepthBuffer: Boolean = True);
+    destructor Destroy; override;
+  private
+    FrameBuf : LongWord;
+    DepthBuf : LongWord;
+    ChannelCount : LongInt;
+    ChannelList  : array [0..Ord(High(TRenderChannel)) - 1] of TGLConst;
+  public
+    Texture : array [TRenderChannel] of TTexture;
+    procedure Attach(Channel: TRenderChannel; Texture: TTexture; Target: TTextureTarget = ttTex2D);
   end;
 
   TRender = object
@@ -860,29 +976,40 @@ type
     OldTime    : LongInt;
     FFPS       : LongInt;
     SBuffer    : array [TRenderSupport] of Boolean;
+    FMaxAniso  : LongInt;
     FViewport  : TRect;
 //    FScissor   : array of TRect;
+  // states
+    FBlendType  : TBlendType;
+    FAlphaTest  : Byte;
+    FDepthTest  : Boolean;
+    FDepthWrite : Boolean;
+    FCullFace   : TCullFace;
+    FTarget     : TRenderTarget;
     procedure Init;
     procedure Free;
     function GetTime: LongInt;
+    function GetViewport: TRect;
+    procedure SetViewport(const Value: TRect);
+    procedure SetScissor(const Value: TRect);
     procedure SetBlendType(Value: TBlendType);
     procedure SetAlphaTest(Value: Byte);
     procedure SetDepthTest(Value: Boolean);
     procedure SetDepthWrite(Value: Boolean);
-    procedure SetCullFace(Value: Boolean);
-    function GetViewport: TRect;
-    procedure SetViewport(const Value: TRect);
-    procedure SetScissor(const Value: TRect);
+    procedure SetCullFace(Value: TCullFace);
+    procedure SetTarget(Value: TRenderTarget);
   public
+    Mode        : TRenderMode;
     ModelMatrix : TMat4f;
     Ambient     : TVec3f;
     ViewPos     : TVec3f;
+    Camera      : TCamera;
     Light       : array [0..MAX_LIGHTS - 1] of TLight;
+    TexOffset   : TVec2f;
     function Support(RenderSupport: TRenderSupport): Boolean;
     procedure ResetBind;
     procedure Update;
     procedure Clear(ClearColor, ClearDepth: Boolean);
-    procedure Color(R, G, B, A: Byte);
     procedure Set2D(Width, Height: Single); overload;
     procedure Set2D(X, Y, Width, Height: Single); overload;
     procedure Set3D(FOV, Aspect: Single; zNear: Single = 0.1; zFar: Single = 1000);
@@ -894,13 +1021,15 @@ type
     property FPS: LongInt read FFPS;
     property Time: LongInt read GetTime;
     property DeltaTime: Single read FDeltaTime;
+    property MaxAniso: LongInt read FMaxAniso;
+    property Viewport: TRect read GetViewport write SetViewport;
+    property Scissor: TRect write SetScissor;
     property BlendType: TBlendType write SetBlendType;
     property AlphaTest: Byte write SetAlphaTest;
     property DepthTest: Boolean write SetDepthTest;
     property DepthWrite: Boolean write SetDepthWrite;
-    property CullFace: Boolean write SetCullFace;
-    property Viewport: TRect read GetViewport write SetViewport;
-    property Scissor: TRect write SetScissor;
+    property CullFace: TCullFace write SetCullFace;
+    property Target: TRenderTarget read FTarget write SetTarget;
   end;
 {$ENDREGION}
 
@@ -911,37 +1040,50 @@ type
 
 // Texture ---------------------------------------------------------------------
 {$REGION 'Texture'}
+  TTextureFilter = (tfNone, tfBilinear, tfTrilinear, tfAniso);
+
   TTexture = class(TResObject)
-    class function Init(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA; VType: TGLConst = GL_UNSIGNED_BYTE): TTexture;
+    constructor Create(Width, Height: LongInt; Data: Pointer; CFormat: TGLConst = GL_RGBA; IFormat: TGLConst = GL_RGBA8; DFormat: TGLConst = GL_UNSIGNED_BYTE); overload;
     class function Load(const FileName: string): TTexture;
     destructor Destroy; override;
   private
     FID     : LongWord;
     FWidth  : LongInt;
     FHeight : LongInt;
+    FFilter : TTextureFilter;
+    FClamp  : Boolean;
+    FMipMap : Boolean;
     Sampler : TGLConst;
-    constructor Create(DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA; VType: TGLConst = GL_UNSIGNED_BYTE); overload;
     constructor Create(const FileName: string); overload;
+    procedure SetFilter(Value: TTextureFilter);
+    procedure SetClamp(Value: Boolean);
   public
-    procedure SetData(X, Y, DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst = GL_RGBA);
+    procedure GenLevels;
+    procedure DataGet(Data: Pointer; Level: LongInt = 0; CFormat: TGLConst = GL_RGBA; DFormat: TGLConst = GL_UNSIGNED_BYTE);
+    procedure DataSet(X, Y, Width, Height: LongInt; Data: Pointer; Level: LongInt = 0; CFormat: TGLConst = GL_RGBA; DFormat: TGLConst = GL_UNSIGNED_BYTE);
+    procedure DataCopy(XOffset, YOffset, X, Y, Width, Height: LongInt; Level: LongInt = 0);
     procedure Bind(Channel: LongInt = 0);
     property Width: LongInt read FWidth;
     property Height: LongInt read FHeight;
+    property Filter: TTextureFilter read FFilter write SetFilter;
+    property Clamp: Boolean read FClamp write SetClamp;
   end;
 {$ENDREGION}
 
 // Shader ----------------------------------------------------------------------
 {$REGION 'Shader'}
-  TShaderUniformType = (utInt, utFloat, utVec2, utVec3, utVec4, utMat3, utMat4);
-  TShaderAttribType  = (atFloat = 1, atVec2, atVec3, atVec4);
+  TShaderUniformType = (utInt, utVec1, utVec2, utVec3, utVec4, utMat3, utMat4);
+  TShaderAttribType  = (atVec1b, atVec2b, atVec3b, atVec4b,
+                        atVec1s, atVec2s, atVec3s, atVec4s,
+                        atVec1f, atVec2f, atVec3f, atVec4f);
 
   TShaderUniform = object
   private
-    FType  : TShaderUniformType;
     FID    : LongInt;
+    FType  : TShaderUniformType;
     FName  : string;
-//    FValue : array [0..15] of Single;
-    procedure Init(ShaderID: LongWord; UniformType: TShaderUniformType; const UName: string);
+    FValue : array [0..11] of Single;
+    procedure Init(ShaderID: LongWord; const UName: string; UniformType: TShaderUniformType);
   public
     procedure Value(const Data; Count: LongInt = 1);
     property Name: string read FName;
@@ -949,10 +1091,13 @@ type
 
   TShaderAttrib = object
   private
-    FType : TShaderAttribType;
     FID   : LongInt;
+    FType : TShaderAttribType;
+    DType : TGLConst;
+    FNorm : Boolean;
+    Size  : LongInt;
     FName : string;
-    procedure Init(ShaderID: LongWord; AttribType: TShaderAttribType; const AName: string);
+    procedure Init(ShaderID: LongWord; const AName: string; AttribType: TShaderAttribType; Norm: Boolean = False);
   public
     procedure Value(Stride: LongInt; const Data);
     property Name: string read FName;
@@ -969,20 +1114,79 @@ type
     FAttrib  : array of TShaderAttrib;
     constructor Create(const FileName: string; const Defines: array of string);
   public
-    function Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
-    function Attrib(AttribType: TShaderAttribType; const AName: string): TShaderAttrib;
+    function Uniform(const UName: string; UniformType: TShaderUniformType): TShaderUniform;
+    function Attrib(const AName: string; AttribType: TShaderAttribType; Norm: Boolean = False): TShaderAttrib;
     procedure Bind;
   end;
 {$ENDREGION}
 
 // Material --------------------------------------------------------------------
 {$REGION 'Material'}
+  TMaterialSampler  = (msDiffuse, msNormal, msSpecular, msAmbient, msReflect, msEmission, msShadow, msMask, msMap0, msMap1, msMap2, msMap3);
+  TMaterialAttrib   = (maCoord, maBinormal, maNormal, maTexCoord0, maTexCoord1, maColor, maWeight, maJoint);
+  TMaterialUniform  = (muModelMatrix, muLightMatrix, muViewPos, muLightPos, muLightParam, muAmbient, muMaterial, muTexOffset);
+
+  TMaterialSamplers = set of TMaterialSampler;
+
 {$IFNDEF NO_MATERIAL}
+
+const
+  SamplerID : array [TMaterialSampler] of record
+      ID   : LongInt;
+      Name : string;
+    end = (
+      (ID: 0; Name: 'sDiffuse'),
+      (ID: 1; Name: 'sNormal'),
+      (ID: 2; Name: 'sSpecular'),
+      (ID: 3; Name: 'sAmbient'),
+      (ID: 4; Name: 'sReflect'),
+      (ID: 5; Name: 'sEmission'),
+      (ID: 6; Name: 'sShadow'),
+      (ID: 0; Name: 'sMask'),
+      (ID: 1; Name: 'sMap0'),
+      (ID: 2; Name: 'sMap1'),
+      (ID: 3; Name: 'sMap2'),
+      (ID: 4; Name: 'sMap3')
+    );
+
+  AttribID : array [TMaterialAttrib] of record
+      AType : TShaderAttribType;
+      Norm  : Boolean;
+      Name  : string;
+    end = (
+      (AType: atVec3f; Norm: False;  Name: 'aCoord'),
+      (AType: atVec4b; Norm: True;  Name: 'aBinormal'),
+      (AType: atVec3b; Norm: True;  Name: 'aNormal'),
+      (AType: atVec2s; Norm: False;  Name: 'aTexCoord0'),
+      (AType: atVec2s; Norm: False;  Name: 'aTexCoord1'),
+      (AType: atVec4b; Norm: True;  Name: 'aColor'),
+      (AType: atVec2f; Norm: False; Name: 'aWeight'),
+      (AType: atVec3f; Norm: False; Name: 'aJoint')
+    );
+
+  UniformID : array [TMaterialUniform] of record
+      UType : TShaderUniformType;
+      Count : LongInt;
+      Name  : string;
+    end = (
+      (UType: utMat4; Count: 1; Name: 'uModelMatrix'),
+      (UType: utMat4; Count: 1; Name: 'uLightMatrix'),
+      (UType: utVec3; Count: 1; Name: 'uViewPos'),
+      (UType: utVec3; Count: MAX_LIGHTS; Name: 'uLightPos'),
+      (UType: utVec4; Count: MAX_LIGHTS; Name: 'uLightParam'),
+      (UType: utVec3; Count: 1; Name: 'uAmbient'),
+      (UType: utVec4; Count: 3; Name: 'uMaterial'),
+      (UType: utVec2; Count: 1; Name: 'uTexOffset')
+    );
+
+type
   TMaterialParams = packed record
     DepthWrite : Boolean;
     AlphaTest  : Byte;
-    CullFace   : Boolean;
+    CullFace   : TCullFace;
     BlendType  : TBlendType;
+    CastShadow    : Boolean;
+    ReceiveShadow : Boolean;
     case Integer of
       0 : (
           Diffuse   : TVec4f;
@@ -994,22 +1198,20 @@ type
       1 : (Uniform : array [0..2] of TVec4f);
   end;
 
-  TMaterialSampler  = (msDiffuse, msNormal, msSpecular, msAmbient, msReflect, msEmission);
-  TMaterialAttrib   = (maCoord, maTangent, maBinormal, maNormal, maTexCoord0, maTexCoord1, maColor, maWeight, maJoint);
-  TMaterialUniform  = (muModelMatrix, muViewPos, muLightPos, muLightParam, muAmbient, muMaterial);
-
-
   TMaterial = class(TResObject)
     class function Load(const FileName: string): TMaterial;
     destructor Destroy; override;
   private
-    Uniform : array [TMaterialUniform] of TShaderUniform;
-    constructor Create(const FileName: string);
+    constructor Create; overload;
+    constructor Create(const FileName: string); overload;
   public
-    Shader  : TShader;
-    Attrib  : array [TMaterialAttrib] of TShaderAttrib;
-    Texture : array [0..15] of TTexture;
-    Params  : TMaterialParams;
+    ModeMat  : array [TRenderMode] of TMaterial;
+    Samplers : TMaterialSamplers;
+    Shader   : TShader;
+    Texture  : array [0..15] of TTexture;
+    Attrib   : array [TMaterialAttrib] of TShaderAttrib;
+    Uniform  : array [TMaterialUniform] of TShaderUniform;
+    Params   : TMaterialParams;
     procedure Bind;
   end;
 {$ENDIF}
@@ -1095,51 +1297,94 @@ type
 {$ENDIF}
 {$ENDREGION}
 
+// Skeleton --------------------------------------------------------------------
+{$REGION 'Skeleton'}
+  TSkeleton = class
+    function JointIndex(const JName: AnsiString): LongInt;
+  end;
+{$ENDREGION}
+
 // Mesh ------------------------------------------------------------------------
 {$REGION 'Mesh'}
   TBufferType = (btIndex, btVertex);
 
-  TMeshBuffer = class(TResObject)
-    class function Init(BufferType: TBufferType; Size: LongInt; Data: Pointer): TMeshBuffer;
+  TMeshBuffer = class
+    constructor Create(BufferType: TBufferType; Count, Stride: LongInt; Data: Pointer);
+    class function Load(BufferType: TBufferType; Stream: TStream): TMeshBuffer;
     destructor Destroy; override;
   private
     RType  : TResType;
     DType  : TGLConst;
     ID     : LongWord;
     FData  : Pointer;
-    constructor Create(BufferType: TBufferType; Size: LongInt; Data: Pointer);
   public
+    Count  : LongInt;
+    Stride : LongInt;
     procedure SetData(Offset, Size: LongInt; Data: Pointer);
     procedure Bind;
     property DataPtr: Pointer read FData;
   end;
 
-  TMesh = object
-    Buffer : array [TBufferType] of TMeshBuffer;
+{$IFNDEF NO_MESH}
+  TMeshAttribs = set of TMaterialAttrib;
+  TMeshJointNames = array of AnsiString;
+
+  TMeshMode = (mmTriList, mmTriStrip, mmLine);
+
+  TMeshData = class(TResObject)
+    class function Init: TMeshData;
+    class function Load(const FileName: string): TMeshData;
+    destructor Destroy; override;
+  public
+    BBox    : TBox;
+    Mode    : TMeshMode;
+    Attrib  : TMeshAttribs;
+    JName   : TMeshJointNames;
+    Buffer  : array [TBufferType] of TMeshBuffer;
+  end;
+
+  TMesh = class
+    constructor Create(MeshData: TMeshData);
+    class function Load(const FileName: string): TMesh;
+    destructor Destroy; override;
+  private
+    JIndex : array of Word;
+    FSkeleton : TSkeleton;
+    FMaterial : TMaterial;
+    procedure SetMaterial(Value: TMaterial);
+    procedure SetSkeleton(Value: TSkeleton);
+  public
+    Data : TMeshData;
     procedure OnRender;
+    property Material: TMaterial read FMaterial write SetMaterial;
+    property Skeleton: TSkeleton read FSkeleton write SetSkeleton;
   end;
+{$ENDIF}
 {$ENDREGION}
 
-// Model -----------------------------------------------------------------------
-{$REGION 'Model'}
-{
+// Font ------------------------------------------------------------------------
+{$REGION 'Font'}
 type
-  TJoint = record
-    Parent : LongInt;
-    Bind   : TDualQuat;
-    Name   : AnsiString;
+  PCharData = ^TCharData;
+  TCharData = record
+    ID   : WideChar;
+    py   : Word;
+    w, h : Word;
+    tx, ty, tw, th : Single;
   end;
 
-  TSkeleton = object
-    procedure Init;
-    procedure Attach(const Skeleton: TSceleton);
+  TFont = class(TResObject)
+    constructor Create(const Name: string);
+    class function Load(const FileName: string): TFont;
+    destructor Destroy; override;
+  public
+    Texture  : TTexture;
+    Table    : array [WideChar] of PCharData;
+    CharData : array of TCharData;
+    procedure Print(const Text: WideString); overload;
+    procedure Print(const Text: WideString; x, y: LongInt; const Color: TVec4f); overload;
+    procedure Print(const Text: WideString; x, y: LongInt; const Color: TVec4f; sx, sy: LongInt; const SColor: TVec4f); overload;
   end;
-}
-{$ENDREGION}
-
-// Terrain ---------------------------------------------------------------------
-{$REGION 'Terrain'}
-
 {$ENDREGION}
 
 // GUI -------------------------------------------------------------------------
@@ -1151,13 +1396,44 @@ type
   TShiftState = set of (ssShift, ssAlt, ssCtrl, ssLeft, ssRight, ssMiddle, ssDouble);
   TMouseButton = (mbLeft, mbRight, mbMiddle);
 
-  TControlParams = packed record
+  TControlParams = record
     Align   : TAlign;
     Anchors : TAnchors;
     Left    : LongInt;
     Top     : LongInt;
     Width   : LongInt;
     Height  : LongInt;
+  end;
+
+  TEventType = (etMouseDClick, etMouseWheel, etMouseDown, etMouseUp, etMouseMove, etMouseEnter, etMouseLeave,
+                etChar, etKeyDown, etKeyUp,
+                etSize);
+
+  TMouseEvent = record
+    Button : TMouseButton;
+    Shift  : TShiftState;
+    Pos    : TVec3s;
+  end;
+
+  TKeyboardEvent = record
+    Shift : TShiftState;
+    case Integer of
+      0 : (Key  : Word);
+      1 : (Char : WideChar);
+  end;
+
+  TSizeEvent = record
+    Rect : TRect;
+  end;
+
+  TControlEvent = record
+    case ID: TEventType of
+      etMouseDClick, etMouseWheel, etMouseDown, etMouseUp, etMouseMove, etMouseEnter, etMouseLeave :
+        (Mouse : TMouseEvent);
+      etChar, etKeyDown, etKeyUp :
+        (Keyboard : TKeyboardEvent);
+      etSize :
+        (Size : TSizeEvent);
   end;
 
   TControl = class
@@ -1179,12 +1455,14 @@ type
     Tag      : LongInt;
     Visible  : Boolean;
     Enabled  : Boolean;
+    Color    : TVec4f;
     Caption  : string;
     Controls : array of TControl;
     function AddCtrl(const Ctrl: TControl): TControl;
     function DelCtrl(const Ctrl: TControl): Boolean;
     procedure BringToFront;
     procedure OnRender; virtual;
+    function OnEvent(const Event: TControlEvent): Boolean; virtual;
     property Parent: TControl read FParent;
     property Align: TAlign read Params.Align write SetAlign;
     property Anchors: TAnchors read Params.Anchors write SetAnchors;
@@ -1211,7 +1489,6 @@ type
 
 // Scene -----------------------------------------------------------------------
 {$REGION 'Scene'}
-{$IFNDEF NO_SCENE}
   TNode = class
     constructor Create(const Name: string);
     destructor Destroy; override;
@@ -1228,6 +1505,8 @@ type
     procedure UpdateBounds;
   public
     Name : string;
+    function Add(Node: TNode): TNode;
+    function Remove(Node: TNode): Boolean;
     procedure OnRender; virtual;
     property Parent: TNode read FParent write SetParent;
     property RMatrix: TMat4f read FRMatrix write SetRMatrix;
@@ -1235,23 +1514,52 @@ type
     property BBox: TBox read FBBox;
   end;
 
-  TModel = class(TNode)
-    //
-  end;
-
+{$IFNDEF NO_SCENE}
   TScene = object
+  private
+    BlurOffset : TShaderUniform;
+    ShadowBlur : TShader;
+    ShadowTex  : array [0..1] of TTexture;
+    ShadowRT   : TRenderTarget;
+  public
     Node : TNode;
+    Shadows : Boolean;
     procedure Init;
     procedure Load(const FileName: string);
     procedure Free;
+    procedure OnRender;
   end;
 {$ENDIF}
 {$ENDREGION}
 
+// Model -----------------------------------------------------------------------
+{$REGION 'Model'}
+{$IFNDEF NO_MESH}
+  TMeshNode = class(TNode)
+    class function Load(const FileName: string): TMeshNode;
+    constructor Create(Mesh: TMesh; Matrix: TMat4f); overload;
+  public
+    Mesh : TMesh;
+    procedure OnRender; override;
+  end;
+{$ENDIF}
+
+  TModelNode = class(TNode)
+    class function Load(const FileName: string): TModelNode;
+  end;
+{$ENDREGION}
+
+// Terrain ---------------------------------------------------------------------
+{$REGION 'Terrain'}
+
+{$ENDREGION}
+
 const
-  EXT_TEX = '.dds';
+  EXT_XTX = '.dds';
   EXT_XSH = '.xsh';
   EXT_XMT = '.xmt';
+  EXT_XMS = '.xms';
+  EXT_XFN = '.xfn';
   EXT_WAV = '.wav';
 
 type
@@ -1280,7 +1588,7 @@ var
   procedure Start(PInit, PFree, PRender: TCoreProc);
   procedure Quit;
   procedure MsgBox(const Caption, Text: string);
-  procedure Assert(const Error: string; Flag: Boolean = True);
+  function Assert(const Error: string; Flag: Boolean = True): Boolean;
 
 implementation
 
@@ -1421,16 +1729,14 @@ const
   function FreeLibrary(LibHandle: LongWord): Boolean; stdcall; external kernel32;
   function GetProcAddress(LibHandle: LongWord; ProcName: PAnsiChar): Pointer; stdcall; external kernel32;
   function MessageBoxA(hWnd: LongWord; lpText, lpCaption: PAnsiChar; uType: LongWord): LongInt; stdcall; external user32;
-  function CreateWindowExA(dwExStyle: LongWord; lpClassName: PAnsiChar; lpWindowName: PAnsiChar; dwStyle: LongWord; X, Y, nWidth, nHeight: LongInt; hWndParent, hMenum, hInstance: LongWord; lpParam: Pointer): LongWord; stdcall; external user32;
+  function CreateWindowExW(dwExStyle: LongWord; lpClassName: PWideChar; lpWindowName: PWideChar; dwStyle: LongWord; X, Y, nWidth, nHeight: LongInt; hWndParent, hMenum, hInstance: LongWord; lpParam: Pointer): LongWord; stdcall; external user32;
   function DestroyWindow(hWnd: LongWord): Boolean; stdcall; external user32;
   function ShowWindow(hWnd: LongWord; nCmdShow: LongInt): Boolean; stdcall; external user32;
-  function SetWindowLongA(hWnd: LongWord; nIndex, dwNewLong: LongInt): LongInt; stdcall; external user32;
-  function GetWindowLongA(hWnd: LongWord; nIndex: LongInt): LongInt; stdcall; external user32;
   function SetWindowLongW(hWnd: LongWord; nIndex, dwNewLong: LongInt): LongInt; stdcall; external user32;
   function GetWindowLongW(hWnd: LongWord; nIndex: LongInt): LongInt; stdcall; external user32;
   function SetFocus(hWnd: LongWord): LongWord; stdcall; external user32;
-  function SetClassLongA(hWnd: LongWord; nIndex: LongInt; dwNewLong: Longint): LongWord; stdcall; external user32;
-  function GetClassLongA(hWnd: LongWord; nIndex: LongInt): LongWord; stdcall; external user32;
+  function SetClassLongW(hWnd: LongWord; nIndex: LongInt; dwNewLong: Longint): LongWord; stdcall; external user32;
+  function GetClassLongW(hWnd: LongWord; nIndex: LongInt): LongWord; stdcall; external user32;
   function AdjustWindowRect(var lpRect: TRect; dwStyle: LongWord; bMenu: Boolean): Boolean; stdcall; external user32;
   function SetWindowPos(hWnd, hWndInsertAfter: LongWord; X, Y, cx, cy: LongInt; uFlags: LongWord): Boolean; stdcall; external user32;
   function GetWindowRect(hWnd: LongWord; out lpRect: TRect): Boolean; stdcall; external user32;
@@ -1439,10 +1745,10 @@ const
   function SetCursorPos(X, Y: LongInt): Boolean; stdcall; external user32;
   function CreateCursor(hInst: LongWord; xHotSpot, yHotSpot, nWidth, nHeight: LongInt; pvANDPlaneter, pvXORPlane: Pointer): LongWord; stdcall; external user32;
   function ScreenToClient(hWnd: LongWord; var lpPoint: TPoint): Boolean; stdcall; external user32;
-  function DefWindowProcA(hWnd, Msg: LongWord; wParam, lParam: LongInt): LongInt; stdcall; external user32;
-  function PeekMessageA(out lpMsg: TMsg; hWnd, Min, Max, Remove: LongWord): Boolean; stdcall; external user32;
+  function DefWindowProcW(hWnd, Msg: LongWord; wParam, lParam: LongInt): LongInt; stdcall; external user32;
+  function PeekMessageW(out lpMsg: TMsg; hWnd, Min, Max, Remove: LongWord): Boolean; stdcall; external user32;
   function TranslateMessage(const lpMsg: TMsg): Boolean; stdcall; external user32;
-  function DispatchMessageA(const lpMsg: TMsg): LongInt; stdcall; external user32;
+  function DispatchMessageW(const lpMsg: TMsg): LongInt; stdcall; external user32;
   function SendMessageA(hWnd, Msg: LongWord; wParam, lParam: LongInt): LongInt; stdcall; external user32;
   function LoadIconA(hInstance: LongInt; lpIconName: PAnsiChar): LongWord; stdcall; external user32;
   function GetDC(hWnd: LongWord): LongWord; stdcall; external user32;
@@ -1502,9 +1808,9 @@ const
       $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $7A, $7B,
       $1B, $0D, $08, $09, $10, $11, $12, $20, $21, $22, $23, $24, $25, $26, $27, $28, $2D, $2E);
 
-  SND_FREQ     = 44100;
+  SND_FREQ     = 22050;
   SND_BPP      = 16;
-  SND_BUF_SIZE = 40 * SND_FREQ * (SND_BPP div 8) * 2 div 1000; // 40 ms latency
+  SND_BUF_SIZE = 50 * SND_FREQ * (SND_BPP div 8) * 2 div 1000; // 40 ms latency
 
 var
   DC, RC   : LongWord;
@@ -2446,7 +2752,23 @@ begin
   m.e00 := v.x;
   m.e11 := v.y;
   m.e22 := v.z;
-  Self := m * Self;
+  Self := Self * m;
+end;
+
+procedure TMat4f.LookAt(const Pos, Target, Up: TVec3f);
+var
+  R, U, D : TVec3f;
+begin
+  D := (Pos - Target);
+  D := D.Normal;
+  R := Up.Cross(D);
+  R := R.Normal;
+  U := D.Cross(R);
+
+  e00 := R.x; e01 := R.y; e02 := R.z; e03 := -Pos.Dot(R);
+  e10 := U.x; e11 := U.y; e12 := U.z; e13 := -Pos.Dot(U);
+  e20 := D.x; e21 := D.y; e22 := D.z; e23 := -Pos.Dot(D);
+  e30 := 0;   e31 := 0;   e32 := 0;   e33 := 1;
 end;
 
 procedure TMat4f.Ortho(Left, Right, Bottom, Top, ZNear, ZFar: Single);
@@ -2499,8 +2821,7 @@ procedure TMat4f.Perspective(FOV, Aspect, ZNear, ZFar: Single);
 var
   x, y : Single;
 begin
-  FOV := Clamp(FOV, EPS, 180 - EPS);
-  y := ZNear * Tan(FOV * deg2rad * 0.5);
+  y := ZNear * Tan(FOV * 0.5 * deg2rad);
   x := y * Aspect;
   Frustum(-x, x, -y, y, ZNear, ZFar);
 end;
@@ -2513,11 +2834,48 @@ begin
   Result.y := y;
 end;
 
+function Vec3b(x, y, z: ShortInt): TVec3b;
+begin
+  Result.x := x;
+  Result.y := y;
+  Result.z := z;
+end;
+
+function Vec3ub(x, y, z: Byte): TVec3ub;
+begin
+  Result.x := x;
+  Result.y := y;
+  Result.z := z;
+end;
+
+function Vec3s(x, y, z: SmallInt): TVec3s;
+begin
+  Result.x := x;
+  Result.y := y;
+  Result.z := z;
+end;
+
 function Vec3f(x, y, z: Single): TVec3f;
 begin
   Result.x := x;
   Result.y := y;
   Result.z := z;
+end;
+
+function Vec4ub(x, y, z, w: Byte): TVec4ub;
+begin
+  Result.x := x;
+  Result.y := y;
+  Result.z := z;
+  Result.w := w;
+end;
+
+function Vec4s(x, y, z, w: SmallInt): TVec4s;
+begin
+  Result.x := x;
+  Result.y := y;
+  Result.z := z;
+  Result.w := w;
 end;
 
 function Vec4f(x, y, z, w: Single): TVec4f;
@@ -2620,6 +2978,17 @@ begin
       Result := max
     else
       Result := x;
+end;
+
+function ClampAngle(Angle: Single): Single;
+begin
+  if Angle > pi then
+    Result := (Frac(Angle / pi) - 1) * pi
+  else
+    if Angle < -pi then
+      Result := (Frac(Angle / pi) + 1) * pi
+    else
+      Result := Angle;
 end;
 
 function Lerp(x, y, t: Single): Single;
@@ -2728,6 +3097,17 @@ function Pow(x, y: Single): Single;
 begin
   Result := exp(ln(x) * y);
 end;
+
+function ToPow2(x: LongInt): LongInt;
+begin
+  Result := x - 1;
+  Result := Result or (Result shr 1);
+  Result := Result or (Result shr 2);
+  Result := Result or (Result shr 4);
+  Result := Result or (Result shr 8);
+  Result := Result or (Result shr 16);
+  Result := Result + 1;
+end;
 {$ENDREGION}
 
 // Utils =======================================================================
@@ -2739,7 +3119,7 @@ type
   // 0..15  - Texture
   // 16     - Shader
   // 17, 18 - Index, Vertex buffer
-    Active : array [TResType] of TResObject;
+    Active : array [TResType] of TObject;
     procedure Init;
     procedure Free;
     function GetRef(const Name: string): TResObject;
@@ -3203,7 +3583,7 @@ end;
 {$ENDREGION}
 
 {$REGION 'TXML'}
-constructor TXML.Create(const FileName: string);
+class function TXML.Load(const FileName: string): TXML;
 const
   UTF16_HEADER : Word = $FEFF;
 var
@@ -3215,22 +3595,26 @@ var
   Size     : LongInt;
 begin
   Stream := TStream.Init(FileName);
-  Size := Stream.Size;
-  Stream.Read(Code, SizeOf(Code));
-  if Code = UTF16_HEADER then
+  if Stream <> nil then
   begin
-    SetLength(WideText, Size div 2);
-    Stream.Read(WideText[1], Size);
-    Text := string(WideText);
+    Size := Stream.Size;
+    Stream.Read(Code, SizeOf(Code));
+    if Code = UTF16_HEADER then
+    begin
+      SetLength(WideText, Size div 2);
+      Stream.Read(WideText[1], Size);
+      Text := string(WideText);
+    end else
+    begin
+      Stream.Pos := 0;
+      SetLength(AnsiText, Size);
+      Stream.Read(AnsiText[1], Size);
+      Text := string(AnsiText);
+    end;
+    Result := Create(Text, 1);
+    Stream.Free;
   end else
-  begin
-    Stream.Pos := 0;
-    SetLength(AnsiText, Size);
-    Stream.Read(AnsiText[1], Size);
-    Text := string(AnsiText);
-  end;
-  Create(Text, 1);
-  Stream.Free;
+    Result := nil;
 end;
 
 constructor TXML.Create(const Text: string; BeginPos: LongInt);
@@ -3535,6 +3919,22 @@ end;
 {$ENDREGION}
 
 {$REGION 'Utils'}
+function Rect(Left, Top, Right, Bottom: LongInt): TRect;
+begin
+  Result.Left   := Left;
+  Result.Top    := Top;
+  Result.Right  := Right;
+  Result.Bottom := Bottom;
+end;
+
+function RGBA(R, G, B, A: Byte): TRGBA;
+begin
+  Result.R := R;
+  Result.G := G;
+  Result.B := B;
+  Result.A := A;
+end;
+
 function Conv(const Str: string; Def: LongInt): LongInt;
 var
   Code : LongInt;
@@ -3651,20 +4051,20 @@ begin
   Result := '';
 end;
 
-function Rect(Left, Top, Right, Bottom: LongInt): TRect;
-begin
-  Result.Left   := Left;
-  Result.Top    := Top;
-  Result.Right  := Right;
-  Result.Bottom := Bottom;
-end;
-
-function RGBA(R, G, B, A: Byte): TRGBA;
-begin
-  Result.R := R;
-  Result.G := G;
-  Result.B := B;
-  Result.A := A;
+function MemCmp(p1, p2: Pointer; Size: LongInt): LongInt;
+asm
+       PUSH    ESI
+       PUSH    EDI
+       MOV     ESI,P1
+       MOV     EDI,P2
+       XOR     EAX,EAX
+       REPE    CMPSB
+       JE      @@1
+       MOVZX   EAX,BYTE PTR [ESI-1]
+       MOVZX   EDX,BYTE PTR [EDI-1]
+       SUB     EAX,EDX
+@@1:   POP     EDI
+       POP     ESI
 end;
 {$ENDREGION}
 
@@ -3844,6 +4244,7 @@ begin
 
     WM_SIZE :
       begin
+        {$IFNDEF NO_GUI}
         GetClientRect(Screen.Handle, Rect);
         Screen.FWidth  := Rect.Right - Rect.Left;
         Screen.FHeight := Rect.Bottom - Rect.Top;
@@ -3852,7 +4253,8 @@ begin
           GUI.Resize(0, 0, Screen.Width, Screen.Height);
           GUI.Realign;
         end;
-        Screen.Resize(Word(LParam), Word(LParam shr 16));
+        {$ENDIF}
+      //  Screen.Resize(Word(LParam), Word(LParam shr 16));
       end;
   // Set max window size
     WM_GETMINMAXINFO :
@@ -3866,7 +4268,7 @@ begin
       end;
     WM_CHAR :
       if (WParam > 31) then
-        Input.FText := Input.FText + Char(WParam);
+        Input.FText := Input.FText + WideChar(WParam);
   // Mouse
     WM_LBUTTONDOWN, WM_LBUTTONDOWN + 1 : Input.SetState(ikMouseL, Msg = WM_LBUTTONDOWN);
     WM_RBUTTONDOWN, WM_RBUTTONDOWN + 1 : Input.SetState(ikMouseR, Msg = WM_RBUTTONDOWN);
@@ -3881,7 +4283,7 @@ begin
       if Screen.FCustom then
         Result := TWndProc(GetWindowLongW(Hwnd, GWL_USERDATA))(Hwnd, Msg, WParam, LParam)
       else
-        Result := DefWindowProcA(Hwnd, Msg, WParam, LParam);
+        Result := DefWindowProcW(Hwnd, Msg, WParam, LParam);
   end;
 end;
 {$ENDIF}
@@ -4026,7 +4428,7 @@ begin
   begin
     LongWord(Pointer(@PFDAttrib[1])^) := 1 shl (Ord(FAntiAliasing) - 1); // Set num WGL_SAMPLES
   // Temp window
-    PHandle := CreateWindowExA(0, 'EDIT', nil, 0, 0, 0, 0, 0, 0, 0, 0, nil);
+    PHandle := CreateWindowExW(0, 'EDIT', nil, 0, 0, 0, 0, 0, 0, 0, 0, nil);
     DC := GetDC(PHandle);
     SetPixelFormat(DC, ChoosePixelFormat(DC, @PFD), @PFD);
     RC := wglCreateContext(DC);
@@ -4043,10 +4445,10 @@ begin
 // Window
   if not FCustom then
   begin
-    Handle := CreateWindowExA(0, 'STATIC', PAnsiChar(AnsiString(FCaption)), 0,
+    Handle := CreateWindowExW(0, 'STATIC', PWideChar(WideString(FCaption)), 0,
                               0, 0, 0, 0, 0, 0, HInstance, nil);
     SendMessageA(Handle, WM_SETICON, 1, LoadIconA(HInstance, 'MAINICON'));
-    SetWindowLongA(Handle, GWL_WNDPROC, LongInt(@WndProc));
+    SetWindowLongW(Handle, GWL_WNDPROC, LongInt(@WndProc));
   end else
   begin
     SetWindowLongW(Handle, GWL_USERDATA, SetWindowLongW(Handle, GWL_WNDPROC, LongInt(@WndProc)));
@@ -4055,7 +4457,7 @@ begin
 
   FillChar(CursorMaskA, SizeOf(CursorMaskA), $FF);
   FillChar(CursorMaskX, SizeOf(CursorMaskX), $00);
-  CursorArrow := GetClassLongA(Handle, GCL_HCURSOR);
+  CursorArrow := GetClassLongW(Handle, GCL_HCURSOR);
   CursorNone  := CreateCursor(hInstance, 0, 0, 32, 32, @CursorMaskA, @CursorMaskX);
 
 // OpenGL
@@ -4182,10 +4584,10 @@ procedure TScreen.Update;
 var
   Msg : TMsg;
 begin
-  while PeekMessageA(Msg, 0, 0, 0, 1) do
+  while PeekMessageW(Msg, 0, 0, 0, 1) do
   begin
     TranslateMessage(Msg);
-    DispatchMessageA(Msg);
+    DispatchMessageW(Msg);
   end;
 end;
 {$ENDIF}
@@ -4225,7 +4627,7 @@ begin
       Style := $CA0000;   // WS_CAPTION or WS_SYSMENU or WS_MINIMIZEBOX
   end else
     Style := $80000000; // WS_POPUP
-  SetWindowLongA(Handle, GWL_STYLE, Style or WS_VISIBLE);
+  SetWindowLongW(Handle, GWL_STYLE, Style or WS_VISIBLE);
 
   Rect.Left   := 0;
   Rect.Top    := 0;
@@ -4237,7 +4639,7 @@ begin
       SetWindowPos(Handle, LongWord(-2 + Ord(FFullScreen)), 0, 0, Right - Left, Bottom - Top, $20)
     else
       SetWindowPos(Handle, LongWord(-2 + Ord(FFullScreen)), FX, FY, Right - Left, Bottom - Top, $20);
-  gl.Viewport(0, 0, Width, Height);
+  Render.Viewport := CoreX.Rect(0, 0, Width, Height);
   Render.Clear(True, False);
   Swap;
   VSync := FVSync;
@@ -4288,7 +4690,7 @@ begin
     XGrabKeyboard(XDisp, Handle, True, 1, 1, 0);
     XGrabPointer(XDisp, Handle, True, 4, 1, 1, Handle, 0, 0);
   end;
-  gl.Viewport(0, 0, Width, Height);
+  Render.Viewport := CoreX.Rect(0, 0, Width, Height);
   VSync := FVSync;
   Swap;
   Swap;
@@ -4421,9 +4823,9 @@ procedure TScreen.ShowCursor(Value: Boolean);
 begin
 {$IFDEF WINDOWS}
   if Value then
-    SetClassLongA(Handle, GCL_HCURSOR, CursorArrow)
+    SetClassLongW(Handle, GCL_HCURSOR, CursorArrow)
   else
-    SetClassLongA(Handle, GCL_HCURSOR, CursorNone);
+    SetClassLongW(Handle, GCL_HCURSOR, CursorNone);
 {$ENDIF}
 end;
 
@@ -4655,6 +5057,16 @@ end;
 {$REGION 'TSample'}
 {$IFNDEF NO_SOUND}
 { TSample }
+constructor TSample.Create(Size: LongInt; Data: PSmallIntArray);
+begin
+  inherited Create(Conv(LongInt(Self)));
+  Self.DLength := Size div 2;
+  Self.Data := GetMemory(Size);
+  Move(Data^, Self.Data^, Size);
+  Frequency := SND_FREQ;
+  Volume    := 100;
+end;
+
 class function TSample.Load(const FileName: string): TSample;
 begin
   Result := TSample(ResManager.GetRef(FileName + EXT_WAV));
@@ -4675,17 +5087,20 @@ begin
   inherited Create(FileName);
 
   Stream := TStream.Init(FileName);
-  Stream.Read(Header, SizeOf(Header));
-  with Header, Fmt do
-    if (wBitsPerSample = 16) and (nChannels = 1) and (nSamplesPerSec = 44100) then
-    begin
-      DLength := Header.DLen div nBlockAlign;
-      Data    := GetMemory(DLen);
-      Stream.Read(Data^, DLen);
-    end;
-  Stream.Free;
+  if Stream <> nil then
+  begin
+    Stream.Read(Header, SizeOf(Header));
+    with Header, Fmt do
+      if (wBitsPerSample = 16) and (nChannels = 1) and (nSamplesPerSec = SND_FREQ) then
+      begin
+        DLength := Header.DLen div nBlockAlign;
+        Data    := GetMemory(DLen);
+        Stream.Read(Data^, DLen);
+      end;
+    Stream.Free;
+  end;
 
-  Frequency := 44100;
+  Frequency := SND_FREQ;
   Volume    := 100;
 end;
 
@@ -4707,6 +5122,7 @@ var
   Channel : TChannel;
 begin
   Channel.Sample  := Self;
+  Channel.Volume  := Volume;
   Channel.Offset  := 0;
   Channel.Loop    := Loop;
   Channel.Playing := True;
@@ -4816,7 +5232,7 @@ begin
       begin
         for i := 0 to SAMPLE_COUNT - 1 do
         begin
-          sidx := Offset + Trunc(i * Sample.Frequency / 44100);
+          sidx := Offset + Trunc(i * Sample.Frequency / SND_FREQ);
           if sidx >= Sample.DLength then
             if Loop then
             begin
@@ -4827,7 +5243,7 @@ begin
               Playing := False;
               break;
             end;
-          Amp := Sample.Volume * Sample.Data^[sidx] div 100;
+          Amp := Volume * Sample.Data^[sidx] div 100;
           AmpData[i].L := AmpData[i].L + Amp;
           AmpData[i].R := AmpData[i].R + Amp;
         end;
@@ -4873,7 +5289,184 @@ end;
 {$ENDIF}
 {$ENDREGION}
 
+// Camera ======================================================================
+{$REGION 'TCamera'}
+procedure TCamera.Init(CameraMode: TCameraMode; CameraProj: TCameraProj);
+begin
+  FillChar(Self, SizeOf(Self), 0);
+  Mode := CameraMode;
+  Proj := CameraProj;
+  FOV   := 45;
+  ZNear := 0.1;
+  ZFar  := 100;
+  Pos   := NullVec3f;
+  Angle := NullVec3f;
+  Dist  := 0;
+end;
+
+procedure TCamera.UpdateMatrix;
+begin
+  ViewMatrix.Identity;
+  case Mode of
+    cmFree :
+      begin
+        ViewMatrix.Rotate(Angle.z, Vec3f(0, 0, 1));
+        ViewMatrix.Rotate(Angle.x, Vec3f(1, 0, 0));
+        ViewMatrix.Rotate(Angle.y, Vec3f(0, 1, 0));
+        ViewMatrix.Translate(Pos * -1);
+      end;
+    cmTarget :
+      begin
+        ViewMatrix.Pos := Vec3f(0, 0, -Dist);
+        ViewMatrix.Rotate(Angle.x, Vec3f(1, 0, 0));
+        ViewMatrix.Rotate(Angle.y, Vec3f(0, 1, 0));
+        ViewMatrix.Rotate(Angle.z, Vec3f(0, 0, 1));
+        ViewMatrix.Translate(Pos * -1);
+      end;
+    cmLookAt :
+      ViewMatrix.LookAt(Pos, Target, Vec3f(0, 1, 0));
+  end;
+
+  with Render.Viewport do
+    case Proj of
+      cpPersp : ProjMatrix.Perspective(FOV, (Right - Left) / (Bottom - Top), zNear, zFar);
+      cpOrtho : ProjMatrix.Ortho(-1, 1, -1, 1, zNear, zFar);
+      //ProjMatrix.Ortho((Left - Right) * 0.5, (Right - Left) * 0.5, (Top - Bottom) * 0.5, (Bottom - Top) * 0.5, zNear, zFar);
+    end;
+end;
+
+procedure TCamera.UpdatePlanes;
+
+  procedure Plane(out p: TVec4f; x, y, z, w: Single); inline;
+  var
+    Len : Single;
+  begin
+    Len := 1 / sqrt(sqr(x) + sqr(y) + sqr(z));
+    p.x := x * Len;
+    p.y := y * Len;
+    p.z := z * Len;
+    p.w := w * Len;
+  end;
+
+begin
+  with ProjMatrix * ViewMatrix do
+  begin
+    Plane(Planes[0], e30 - e00, e31 - e01, e32 - e02, e33 - e03); // right
+    Plane(Planes[1], e30 + e00, e31 + e01, e32 + e02, e33 + e03); // left
+    Plane(Planes[2], e30 - e10, e31 - e11, e32 - e12, e33 - e13); // top
+    Plane(Planes[3], e30 + e10, e31 + e11, e32 + e12, e33 + e13); // bottom
+    Plane(Planes[4], e30 - e20, e31 - e21, e32 - e22, e33 - e23); // near
+    Plane(Planes[5], e30 + e20, e31 + e21, e32 + e22, e33 + e23); // far
+  end;
+end;
+
+procedure TCamera.Setup;
+var
+  M : TMat4f;
+begin
+  gl.MatrixMode(GL_PROJECTION);
+  gl.LoadMatrixf(ProjMatrix);
+  gl.MatrixMode(GL_MODELVIEW);
+  gl.LoadMatrixf(ViewMatrix);
+
+  M := ViewMatrix.Inverse;
+  Render.ViewPos := M.Pos;
+end;
+
+function TCamera.Visible(const Box: TBox): Boolean;
+var
+  i : LongInt;
+begin
+  with Box do
+    for i := Low(Planes) to High(Planes) do
+      with Planes[i] do
+        if (Dot(Max) < 0) and
+           (Dot(Vec3f(Min.x, Max.y, Max.z)) < 0) and
+           (Dot(Vec3f(Max.x, Min.y, Max.z)) < 0) and
+           (Dot(Vec3f(Min.x, Min.y, Max.z)) < 0) and
+           (Dot(Vec3f(Max.x, Max.y, Min.z)) < 0) and
+           (Dot(Vec3f(Min.x, Max.y, Min.z)) < 0) and
+           (Dot(Vec3f(Max.x, Min.y, Min.z)) < 0) and
+           (Dot(Min) < 0) then
+        begin
+          Result := False;
+          Exit;
+        end;
+  Result := True;
+end;
+
+function TCamera.Visible(const Sphere: TSphere): Boolean;
+var
+  i : LongInt;
+begin
+  with Sphere do
+    for i := Low(Planes) to High(Planes) do
+      if Planes[i].Dot(Center) < -Radius then
+      begin
+        Result := False;
+        Exit;
+      end;
+  Result := True;
+end;
+{$ENDREGION}
+
 // Render ======================================================================
+{$REGION 'TRenderTarget'}
+constructor TRenderTarget.Create(Width, Height: LongInt; DepthBuffer: Boolean);
+begin
+  gl.GenFramebuffers(1, @FrameBuf);
+  gl.BindFramebuffer(GL_FRAMEBUFFER, FrameBuf);
+  if DepthBuffer then
+  begin
+    gl.GenRenderbuffers(1, @DepthBuf);
+    gl.BindRenderbuffer(GL_RENDERBUFFER, DepthBuf);
+    gl.RenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, Width, Height);
+    gl.FramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, DepthBuf);
+  end;
+//  Assert('Invalid frame buffer object', gl.CheckFramebufferStatus(GL_FRAMEBUFFER) <> GL_FRAMEBUFFER_COMPLETE);
+  gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+end;
+
+destructor TRenderTarget.Destroy;
+begin
+  if DepthBuf <> 0 then
+    gl.DeleteRenderbuffers(1, @DepthBuf);
+  gl.DeleteFramebuffers(1, @FrameBuf);
+end;
+
+procedure TRenderTarget.Attach(Channel: TRenderChannel; Texture: TTexture; Target: TTextureTarget);
+var
+  TargetID  : TGLConst;
+  TextureID : LongWord;
+begin
+  if Target = ttTex2D then
+    TargetID := GL_TEXTURE_2D
+  else
+    TargetID := TGLConst(Ord(GL_TEXTURE_CUBE_MAP_POSITIVE_X) + Ord(Target) - 1);
+
+  if Texture <> nil then
+    TextureID := Texture.FID
+  else
+    TextureID := 0;
+
+  gl.BindFramebuffer(GL_FRAMEBUFFER, FrameBuf);
+  if Channel = rcDepth then
+    gl.FramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, TargetID, TextureID, 0)
+  else
+    gl.FramebufferTexture2D(GL_FRAMEBUFFER, TGLConst(Ord(GL_COLOR_ATTACHMENT0) + Ord(Channel) - 1), TargetID, TextureID, 0);
+
+  Self.Texture[Channel] := Texture;
+  ChannelCount := 0;
+  for Channel := rcColor0 to High(Self.Texture) do
+    if Self.Texture[Channel] <> nil then
+    begin
+      ChannelList[ChannelCount] := TGLConst(Ord(GL_COLOR_ATTACHMENT0) + Ord(Channel) - 1);
+      Inc(ChannelCount);
+    end;
+  gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+end;
+{$ENDREGION}
+
 {$REGION 'TRender'}
 procedure TRender.Init;
 var
@@ -4892,24 +5485,25 @@ begin
   Microseconds(TimeStart);
 {$ENDIF}
   Screen.Restore;
+  Mode := rmNormal;
   BlendType := btNormal;
 
   gl.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
   gl.Enable(GL_TEXTURE_2D);
-  gl.Enable(GL_TEXTURE_CUBE_MAP);
-  gl.Enable(GL_ALPHA_TEST);
-  gl.AlphaFunc(GL_GREATER, 0.0);
   gl.Disable(GL_DEPTH_TEST);
 
   FVendor   := string(gl.GetString(GL_VENDOR));
   FRenderer := string(gl.GetString(GL_RENDERER));
   FVersion  := string(gl.GetString(GL_VERSION));
 
+  gl.GetIntegerv(GL_MAX_TEXTURE_MAX_ANISOTROPY, @FMaxAniso);
+  FMaxAniso := Min(FMaxAniso, 8);
+
   Assert('Update your video card driver!', FRenderer = 'GDI Generic');
 
   SBuffer[rsMT]   := @gl.ActiveTexture <> nil;
   SBuffer[rsVBO]  := @gl.BindBuffer <> nil;
-//  SBuffer[rsFrameTex]  := @gl. <> nil;
+  SBuffer[rsFBO]  := @gl.GenFramebuffers <> nil;
   SBuffer[rsGLSL] := @gl.CreateProgram <> nil;
 
 // Get number of processors
@@ -4958,49 +5552,6 @@ begin
 end;
 {$ENDIF}
 
-procedure TRender.SetBlendType(Value: TBlendType);
-begin
-  gl.Enable(GL_BLEND);
-  case Value of
-    btNormal : gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    btAdd    : gl.BlendFunc(GL_SRC_ALPHA, GL_ONE);
-    btMult   : gl.BlendFunc(GL_ZERO, GL_SRC_COLOR);
-  else
-    gl.Disable(GL_BLEND);
-  end;
-end;
-
-procedure TRender.SetAlphaTest(Value: Byte);
-begin
-  if Value > 0 then
-  begin
-    gl.Enable(GL_ALPHA_TEST);
-    gl.AlphaFunc(GL_GREATER, Value / 255);
-  end else
-    gl.Disable(GL_ALPHA_TEST);
-end;
-
-procedure TRender.SetDepthTest(Value: Boolean);
-begin
-  if Value then
-    gl.Enable(GL_DEPTH_TEST)
-  else
-    gl.Disable(GL_DEPTH_TEST);
-end;
-
-procedure TRender.SetDepthWrite(Value: Boolean);
-begin
-  gl.DepthMask(Value);
-end;
-
-procedure TRender.SetCullFace(Value: Boolean);
-begin
-  if Value then
-    gl.Enable(GL_CULL_FACE)
-  else
-    gl.Disable(GL_CULL_FACE);
-end;
-
 function TRender.GetViewport: TRect;
 begin
   Result := FViewport;
@@ -5025,6 +5576,96 @@ begin
   end;
 end;
 
+procedure TRender.SetBlendType(Value: TBlendType);
+begin
+  if FBlendType <> Value then
+  begin
+    if FBlendType = btNone then
+      gl.Enable(GL_BLEND);
+    FBlendType := Value;
+    case Value of
+      btNormal : gl.BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+      btAdd    : gl.BlendFunc(GL_SRC_ALPHA, GL_ONE);
+      btMult   : gl.BlendFunc(GL_ZERO, GL_SRC_COLOR);
+    else
+      gl.Disable(GL_BLEND);
+    end;
+  end;
+end;
+
+procedure TRender.SetAlphaTest(Value: Byte);
+begin
+  if FAlphaTest <> Value then
+  begin
+    FAlphaTest := Value;
+    if Value > 0 then
+    begin
+      gl.Enable(GL_ALPHA_TEST);
+      gl.AlphaFunc(GL_GREATER, Value / 255);
+    end else
+      gl.Disable(GL_ALPHA_TEST);
+  end;
+end;
+
+procedure TRender.SetDepthTest(Value: Boolean);
+begin
+  if FDepthTest <> Value then
+  begin
+    FDepthTest := Value;
+    if Value then
+      gl.Enable(GL_DEPTH_TEST)
+    else
+      gl.Disable(GL_DEPTH_TEST);
+  end;
+end;
+
+procedure TRender.SetDepthWrite(Value: Boolean);
+begin
+  if FDepthWrite <> Value then
+  begin
+    FDepthWrite := Value;
+    gl.DepthMask(Value);
+  end;
+end;
+
+procedure TRender.SetCullFace(Value: TCullFace);
+begin
+  if FCullFace <> Value then
+  begin
+    if FCullFace = cfNone then
+      gl.Enable(GL_CULL_FACE);
+    FCullFace := Value;
+    case Value of
+      cfFront : gl.CullFace(GL_FRONT);
+      cfBack  : gl.CullFace(GL_BACK);
+    else
+      gl.Disable(GL_CULL_FACE);
+    end;
+  end;
+end;
+
+procedure TRender.SetTarget(Value: TRenderTarget);
+begin
+  if FTarget <> nil then
+    if FTarget.ChannelCount = 0 then
+    begin
+      gl.DrawBuffer(GL_BACK);
+      gl.ReadBuffer(GL_BACK);
+    end;
+  FTarget := Value;
+  if Value <> nil then
+  begin
+    gl.BindFramebuffer(GL_FRAMEBUFFER, Value.FrameBuf);
+    if Value.ChannelCount = 0 then
+    begin
+      gl.DrawBuffer(GL_NONE);
+      gl.ReadBuffer(GL_NONE);
+    end else
+      gl.DrawBuffers(Value.ChannelCount, @Value.ChannelList);
+  end else
+    gl.BindFramebuffer(GL_FRAMEBUFFER, 0);
+end;
+
 function TRender.Support(RenderSupport: TRenderSupport): Boolean;
 begin
   Result := SBuffer[RenderSupport];
@@ -5034,21 +5675,21 @@ procedure TRender.ResetBind;
 var
   i : LongInt;
 begin
- FillChar(ResManager.Active, SizeOf(ResManager.Active), 0);
- if not Render.Support(rsMT) then
- begin
-   gl.BindTexture(GL_TEXTURE_2D, 0);
-   gl.BindTexture(GL_TEXTURE_CUBE_MAP, 0);
- end else
-   for i := 0 to 15 do
-   begin
-     gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + i));
-     gl.BindTexture(GL_TEXTURE_2D, 0);
-     gl.BindTexture(GL_TEXTURE_CUBE_MAP, 0);
-   end;
- gl.UseProgram(0);
- gl.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
- gl.BindBuffer(GL_ARRAY_BUFFER, 0);
+  FillChar(ResManager.Active, SizeOf(ResManager.Active), 0);
+  if not Render.Support(rsMT) then
+  begin
+    gl.BindTexture(GL_TEXTURE_2D, 0);
+    gl.BindTexture(GL_TEXTURE_CUBE_MAP, 0);
+  end else
+    for i := 0 to 15 do
+    begin
+      gl.ActiveTexture(TGLConst(Ord(GL_TEXTURE0) + i));
+      gl.BindTexture(GL_TEXTURE_2D, 0);
+      gl.BindTexture(GL_TEXTURE_CUBE_MAP, 0);
+    end;
+  gl.UseProgram(0);
+  gl.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+  gl.BindBuffer(GL_ARRAY_BUFFER, 0);
 end;
 
 procedure TRender.Update;
@@ -5065,11 +5706,6 @@ begin
   if ClearColor then Mask := Mask or Ord(GL_COLOR_BUFFER_BIT);
   if ClearDepth then Mask := Mask or Ord(GL_DEPTH_BUFFER_BIT);
   gl.Clear(TGLConst(Mask));
-end;
-
-procedure TRender.Color(R: Byte; G: Byte; B: Byte; A: Byte);
-begin
-  gl.Color4f(R/255, G/255, B/255, A/255);
 end;
 
 procedure TRender.Set2D(Width, Height: Single);
@@ -5109,45 +5745,41 @@ begin
   v[1] := Vec4f(x + w, y, s + sw, t + th);
   v[2] := Vec4f(x + w, y + h, s + sw, t);
   v[3] := Vec4f(x, y + h, s, t);
-                   {
+
   gl.Beginp(GL_TRIANGLE_STRIP);
-    gl.TexCoord2fv(@v[0].z);
-    gl.Vertex2fv(@v[0].x);
-    gl.TexCoord2fv(@v[1].z);
-    gl.Vertex2fv(@v[1].x);
-    gl.TexCoord2fv(@v[3].z);
-    gl.Vertex2fv(@v[3].x);
-    gl.TexCoord2fv(@v[2].z);
-    gl.Vertex2fv(@v[2].x);
-  gl.Endp;          }
+    gl.TexCoord2f(v[0].z, v[0].w);
+    gl.Vertex2f(v[0].x, v[0].y);
+    gl.TexCoord2f(v[1].z, v[1].w);
+    gl.Vertex2f(v[1].x, v[1].y);
+    gl.TexCoord2f(v[3].z, v[3].w);
+    gl.Vertex2f(v[3].x, v[3].y);
+    gl.TexCoord2f(v[2].z, v[2].w);
+    gl.Vertex2f(v[2].x, v[2].y);
+  gl.Endp;
 end;
 {$ENDREGION}
 
 // Texture =====================================================================
 {$REGION 'TTexture'}
-class function TTexture.Init(DWidth, DHeight: LongInt; Data: Pointer; DType, VType: TGLConst): TTexture;
-begin
-  Result := TTexture.Create(DWidth, DHeight, Data, DType, VType);
-end;
-
 class function TTexture.Load(const FileName: string): TTexture;
 begin
-  Result := TTexture(ResManager.GetRef(FileName + EXT_TEX));
+  Result := TTexture(ResManager.GetRef(FileName + EXT_XTX));
   if Result = nil then
-    Result := TTexture.Create(FileName + EXT_TEX);
+    Result := TTexture.Create(FileName + EXT_XTX);
 end;
 
-constructor TTexture.Create(DWidth, DHeight: LongInt; Data: Pointer; DType, VType: TGLConst);
+constructor TTexture.Create(Width, Height: LongInt; Data: Pointer; CFormat, IFormat, DFormat: TGLConst);
 begin
   inherited Create(Conv(LongInt(Self)));
-  FWidth  := DWidth;
-  FHeight := DHeight;
+  FWidth  := Width;
+  FHeight := Height;
   gl.GenTextures(1, @FID);
   gl.BindTexture(GL_TEXTURE_2D, FID);
-  gl.TexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, DType, VType, Data);
-  gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  gl.TexImage2D(GL_TEXTURE_2D, 0, IFormat, Width, Height, 0, CFormat, DFormat, Data);
   Sampler := GL_TEXTURE_2D;
+  FMipMap := False;
+  FFilter := tfBilinear;
+  Filter := tfNone;
 end;
 
 constructor TTexture.Create(const FileName: string);
@@ -5306,9 +5938,9 @@ begin
   LF := GetLoadFormat(DDS);
   if LF = lfNULL then
   begin
-    Writeln('Not supported format ', DDS.dwFlags, ' ', DDS.pfRGBbpp);
+    Assert('Not supported format: "' + FileName + '"');
     Stream.Free;
-    Exit; // FIX log!
+    Exit;
   end;
 
   with DDS, LoadFormat[LF] do
@@ -5340,7 +5972,6 @@ begin
     gl.GenTextures(1, @FID);
     gl.BindTexture(Sampler, FID);
 
-
     for s := 0 to Samples - 1 do
     begin
       case Sampler of
@@ -5370,28 +6001,85 @@ begin
     end;
     FreeMemory(Data);
 
-  // Filter
-    gl.TexParameteri(Sampler, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    if dwMipMapCount > 1 then
-    begin
-      gl.TexParameteri(Sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    FMipMap := dwMipMapCount > 1;
+    if FMipMap then
       gl.TexParameteri(Sampler, GL_TEXTURE_MAX_LEVEL, TGLConst(RMips - 1));
-      gl.TexParameteri(Sampler, GL_TEXTURE_MAX_ANISOTROPY, TGLConst(8));
-    end else
-      gl.TexParameteri(Sampler, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
   end;
   Stream.Free;
+  Filter := tfAniso;
 end;
 
 destructor TTexture.Destroy;
 begin
   gl.DeleteTextures(1, @FID);
+  inherited;
 end;
 
-procedure TTexture.SetData(X, Y, DWidth, DHeight: LongInt; Data: Pointer; DType: TGLConst);
+procedure TTexture.SetFilter(Value: TTextureFilter);
+const
+  FilterMode : array [Boolean, TTextureFilter, 0..1] of TGLConst =
+    (((GL_NEAREST, GL_NEAREST), (GL_LINEAR, GL_LINEAR), (GL_LINEAR, GL_LINEAR), (GL_LINEAR, GL_LINEAR)),
+     ((GL_NEAREST_MIPMAP_NEAREST, GL_NEAREST), (GL_LINEAR_MIPMAP_NEAREST, GL_LINEAR), (GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR), (GL_LINEAR_MIPMAP_LINEAR, GL_LINEAR)));
+begin
+  if FFilter <> Value then
+  begin
+    FFilter := Value;
+    Bind(0);
+    gl.TexParameteri(Sampler, GL_TEXTURE_MIN_FILTER, FilterMode[FMipMap, FFilter, 0]);
+    gl.TexParameteri(Sampler, GL_TEXTURE_MAG_FILTER, FilterMode[FMipMap, FFilter, 1]);
+    if Render.MaxAniso > 0 then
+      if FFilter = tfAniso then
+        gl.TexParameteri(Sampler, GL_TEXTURE_MAX_ANISOTROPY, TGLConst(Render.MaxAniso))
+      else
+        gl.TexParameteri(Sampler, GL_TEXTURE_MAX_ANISOTROPY, TGLConst(1));
+  end;
+end;
+
+procedure TTexture.SetClamp(Value: Boolean);
+const
+  ClampMode : array [Boolean] of TGLConst = (GL_REPEAT, GL_CLAMP_TO_EDGE);
+begin
+  if FClamp <> Value then
+  begin
+    FClamp := Value;
+    Bind;
+    gl.TexParameteri(Sampler, GL_TEXTURE_WRAP_S, ClampMode[Clamp]);
+    gl.TexParameteri(Sampler, GL_TEXTURE_WRAP_T, ClampMode[Clamp]);
+    gl.TexParameteri(Sampler, GL_TEXTURE_WRAP_R, ClampMode[Clamp]);
+  end;
+end;
+
+procedure TTexture.GenLevels;
+var
+  f : TTextureFilter;
 begin
   Bind;
-  gl.TexSubImage2D(Sampler, 0, X, Y, DWidth, DHeight, DType, GL_UNSIGNED_BYTE, Data);
+  gl.GenerateMipmap(Sampler);
+// reset filtering
+  if not FMipMap then
+  begin
+    f := Filter;
+    FFilter := TTextureFilter(-1);
+    Filter := f;
+  end;
+end;
+
+procedure TTexture.DataGet(Data: Pointer; Level: LongInt; CFormat, DFormat: TGLConst);
+begin
+  Bind;
+  gl.GetTexImage(Sampler, Level, CFormat, DFormat, Data);
+end;
+
+procedure TTexture.DataSet(X, Y, Width, Height: LongInt; Data: Pointer; Level: LongInt; CFormat, DFormat: TGLConst);
+begin
+  Bind;
+  gl.TexSubImage2D(Sampler, Level, X, Y, Width, Height, CFormat, DFormat, Data);
+end;
+
+procedure TTexture.DataCopy(XOffset, YOffset, X, Y, Width, Height, Level: LongInt);
+begin
+  Bind;
+  gl.CopyTexSubImage2D(Sampler, Level, XOffset, YOffset, X, Y, Width, Height);
 end;
 
 procedure TTexture.Bind(Channel: LongInt);
@@ -5408,40 +6096,61 @@ end;
 
 // Shader ======================================================================
 {$REGION 'TShaderUniform'}
-procedure TShaderUniform.Init(ShaderID: LongWord; UniformType: TShaderUniformType; const UName: string);
+procedure TShaderUniform.Init(ShaderID: LongWord; const UName: string; UniformType: TShaderUniformType);
+var
+  i : LongInt;
 begin
   FID   := gl.GetUniformLocation(ShaderID, PAnsiChar(AnsiString(UName)));
   FName := UName;
   FType := UniformType;
+  for i := 0 to Length(FValue) - 1 do
+    FValue[i] := NAN;
 end;
 
 procedure TShaderUniform.Value(const Data; Count: LongInt);
+const
+  USize : array [TShaderUniformType] of LongInt = (4, 4, 8, 12, 16, 36, 64);
 begin
   if FID <> -1 then
+  begin
+    if Count * USize[FType] <= SizeOf(FValue) then
+      if MemCmp(@FValue, @Data, Count * USize[FType]) <> 0 then
+        Move(Data, FValue, Count * USize[FType])
+      else
+        Exit;
+
     case FType of
-      utInt   : gl.Uniform1iv(FID, Count, @Data);
-      utFloat : gl.Uniform1fv(FID, Count, @Data);
-      utVec2  : gl.Uniform2fv(FID, Count, @Data);
-      utVec3  : gl.Uniform3fv(FID, Count, @Data);
-      utVec4  : gl.Uniform4fv(FID, Count, @Data);
-      utMat3  : gl.UniformMatrix3fv(FID, Count, False, @Data);
-      utMat4  : gl.UniformMatrix4fv(FID, Count, False, @Data);
+      utInt  : gl.Uniform1iv(FID, Count, @Data);
+      utVec1 : gl.Uniform1fv(FID, Count, @Data);
+      utVec2 : gl.Uniform2fv(FID, Count, @Data);
+      utVec3 : gl.Uniform3fv(FID, Count, @Data);
+      utVec4 : gl.Uniform4fv(FID, Count, @Data);
+      utMat3 : gl.UniformMatrix3fv(FID, Count, False, @Data);
+      utMat4 : gl.UniformMatrix4fv(FID, Count, False, @Data);
     end;
+  end;
 end;
 {$ENDREGION}
 
 {$REGION 'TShaderAttrib'}
-procedure TShaderAttrib.Init(ShaderID: LongWord; AttribType: TShaderAttribType; const AName: string);
+procedure TShaderAttrib.Init(ShaderID: LongWord; const AName: string; AttribType: TShaderAttribType; Norm: Boolean);
 begin
   FID   := gl.GetAttribLocation(ShaderID, PAnsiChar(AnsiString(AName)));
   FName := AName;
   FType := AttribType;
+  Size  := Byte(FType) mod 4 + 1;
+  FNorm := Norm;
+  case FType of
+    atVec1b..atVec4b : DType := GL_UNSIGNED_BYTE;
+    atVec1s..atVec4s : DType := GL_SHORT;
+    atVec1f..atVec4f : DType := GL_FLOAT;
+  end;
 end;
 
 procedure TShaderAttrib.Value(Stride: LongInt; const Data);
 begin
   if FID <> -1 then
-    gl.VertexAttribPointer(FID, Byte(FType), GL_FLOAT, False, Stride, @Data);
+    gl.VertexAttribPointer(FID, Size, DType, FNorm, Stride, @Data);
 end;
 
 procedure TShaderAttrib.Enable;
@@ -5536,29 +6245,33 @@ begin
   FID := gl.CreateProgram();
 // Reading
   Stream := TStream.Init(FileName);
-  SetLength(Source, Stream.Size);
-  Stream.Read(Source[1], Stream.Size);
-  Stream.Free;
-// Compiling
-//  DefinesStr := '#version 120' + CRLF + DefinesStr; // not necessary
-  CSource := AnsiString(DefinesStr + ' VERTEX' + CRLF) + Source;
-  Attach(GL_VERTEX_SHADER, CSource);
-  CSource := AnsiString(DefinesStr + ' FRAGMENT' + CRLF) + Source;
-  Attach(GL_FRAGMENT_SHADER, CSource);
-  if Pos(AnsiString('#ifdef GEOMETRY'), Source) > 0 then
+  if Stream <> nil then
   begin
-    CSource := AnsiString(DefinesStr + ' GEOMETRY' + CRLF) + Source;
-    Attach(GL_GEOMETRY_SHADER, CSource);
-//    gl.GetIntegerv(GL_MAX_GEOMETRY_OUTPUT_VERTICES, @i);
-    gl.ProgramParameteri(FID, GL_GEOMETRY_VERTICES_OUT, 3);
-    gl.ProgramParameteri(FID, GL_GEOMETRY_INPUT_TYPE, Ord(GL_TRIANGLES));
-    gl.ProgramParameteri(FID, GL_GEOMETRY_OUTPUT_TYPE, Ord(GL_TRIANGLE_STRIP));
-  end;
-// Linking
-  gl.LinkProgram(FID);
-  gl.GetProgramiv(FID, GL_LINK_STATUS, @Status);
-  if Status <> 1 then
-    InfoLog(FID, True);
+    SetLength(Source, Stream.Size);
+    Stream.Read(Source[1], Stream.Size);
+    Stream.Free;
+  // Compiling
+//    DefinesStr := '#version 120' + CRLF + DefinesStr; // not necessary
+    CSource := AnsiString(DefinesStr + ' VERTEX' + CRLF) + Source;
+    Attach(GL_VERTEX_SHADER, CSource);
+    CSource := AnsiString(DefinesStr + ' FRAGMENT' + CRLF) + Source;
+    Attach(GL_FRAGMENT_SHADER, CSource);
+    if Pos(AnsiString('#ifdef GEOMETRY'), Source) > 0 then
+    begin
+      CSource := AnsiString(DefinesStr + ' GEOMETRY' + CRLF) + Source;
+      Attach(GL_GEOMETRY_SHADER, CSource);
+  //    gl.GetIntegerv(GL_MAX_GEOMETRY_OUTPUT_VERTICES, @i);
+      gl.ProgramParameteri(FID, GL_GEOMETRY_VERTICES_OUT, 3);
+      gl.ProgramParameteri(FID, GL_GEOMETRY_INPUT_TYPE, Ord(GL_TRIANGLES));
+      gl.ProgramParameteri(FID, GL_GEOMETRY_OUTPUT_TYPE, Ord(GL_TRIANGLE_STRIP));
+    end;
+  // Linking
+    gl.LinkProgram(FID);
+    gl.GetProgramiv(FID, GL_LINK_STATUS, @Status);
+    if Status <> 1 then
+      InfoLog(FID, True);
+  end else
+    Assert('Can''t open shader "' + FileName + '"');
 end;
 
 destructor TShader.Destroy;
@@ -5566,7 +6279,7 @@ begin
   gl.DeleteProgram(FID);
 end;
 
-function TShader.Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
+function TShader.Uniform(const UName: string; UniformType: TShaderUniformType): TShaderUniform;
 var
   i : LongInt;
 begin
@@ -5576,12 +6289,12 @@ begin
       Result := FUniform[i];
       Exit;
     end;
-  Result.Init(FID, UniformType, UName);
+  Result.Init(FID, UName, UniformType);
   SetLength(FUniform, Length(FUniform) + 1);
   FUniform[Length(FUniform) - 1] := Result;
 end;
 
-function TShader.Attrib(AttribType: TShaderAttribType; const AName: string): TShaderAttrib;
+function TShader.Attrib(const AName: string; AttribType: TShaderAttribType; Norm: Boolean = False): TShaderAttrib;
 var
   i : LongInt;
 begin
@@ -5591,7 +6304,7 @@ begin
       Result := FAttrib[i];
       Exit;
     end;
-  Result.Init(FID, AttribType, AName);
+  Result.Init(FID, AName, AttribType, Norm);
   SetLength(FAttrib, Length(FAttrib) + 1);
   FAttrib[Length(FAttrib) - 1] := Result;
 end;
@@ -5616,105 +6329,96 @@ begin
     Result := TMaterial.Create(FileName + EXT_XMT);
 end;
 
+constructor TMaterial.Create;
+begin
+end;
+
 constructor TMaterial.Create(const FileName: string);
-const
-  AttribName : array [TMaterialAttrib] of record
-      AType : TShaderAttribType;
-      Name  : string;
-    end = (
-      (AType: atVec3;  Name: 'aCoord'),
-      (AType: atVec3;  Name: 'aTangent'),
-      (AType: atVec3;  Name: 'aBinormal'),
-      (AType: atVec3;  Name: 'aNormal'),
-      (AType: atVec2;  Name: 'aTexCoord0'),
-      (AType: atVec2;  Name: 'aTexCoord1'),
-      (AType: atVec4;  Name: 'aColor'),
-      (AType: atFloat; Name: 'aWeight'),
-      (AType: atVec2;  Name: 'aJoint')
-    );
-  SamplerName : array [TMaterialSampler] of string = (
-    'sDiffuse',
-    'sNormal',
-    'sSpecular',
-    'sAmbient',
-    'sReflect',
-    'sEmission'
-  );
 var
-  i, DCount  : LongInt;
+  i, DCount : LongInt;
   ma : TMaterialAttrib;
   ms : TMaterialSampler;
+  mu : TMaterialUniform;
   Stream : TStream;
-  SValue  : string;
+  ShaderName  : string;
+  SamplerName : string;
   Defines : array of string;
+  rm      : TRenderMode;
 begin
   inherited Create(FileName);
 
   Stream := TStream.Init(FileName);
   Stream.Read(Params, SizeOf(Params));
-{
-  Params.Diffuse   := Vec4f(0.8, 0.8, 0.8, 1.0);
-  Params.Ambient   := Vec3f(0.4, 0.4, 0.4);
-  Params.Specular  := Vec3f(0.366, 0.529044, 1) * 0.240; //Vec3f(1.0, 1.0, 1.0);
-  Params.Shininess := 4 / 0.488;
-  Params.Reflect   := 0.5;
 
-  Texture[0] := TTexture.Load('media/vasya_d.dds');
-  Texture[1] := TTexture.Load('media/vasya_n.dds');
-  Texture[2] := TTexture.Load('media/vasya_s.dds');
-
-  Texture[0] := TTexture.Load('media/human_female_body_d.dds');
-  Texture[1] := TTexture.Load('media/human_female_body_n.dds');
-
-  Texture[0] := TTexture.Load('media/diffuse.dds');
-  Texture[1] := TTexture.Load('media/normal.dds');
-  Texture[2] := TTexture.Load('media/spec.dds');
-  Texture[4] := TTexture.Load('media/refmap.dds');
-  Texture[5] := TTexture.Load('media/illum.dds');
-
-  Shader := TShader.Load('media/xshader.txt', ['MAP_DIFFUSE', 'MAP_NORMAL', 'FX_SHADE', 'FX_BLINN', 'FX_PLASTIC']);
-}
-  SValue := string(Stream.ReadAnsi);
+  ShaderName := string(Stream.ReadAnsi);
   Stream.Read(DCount, SizeOf(DCount));
-  SetLength(Defines, DCount);
+  SetLength(Defines, DCount + 1);
   for i := 0 to DCount - 1 do
     Defines[i] := string(Stream.ReadAnsi);
-  Shader := TShader.Load(SValue, Defines);
-  Shader.Bind;
+  Defines[DCount] := 'MODE_NORMAL';
+  Shader := TShader.Load(ShaderName, Defines);
 
-  for ms := Low(ms) to High(ms) do
+  Stream.Read(Samplers, SizeOf(Samplers));
+  for ms in Samplers do
   begin
-    SValue := string(Stream.ReadAnsi);
-    if SValue <> '' then
-      Texture[Ord(ms)] := TTexture.Load(SValue);
+    SamplerName := string(Stream.ReadAnsi);
+    if SamplerName <> '' then
+      Texture[SamplerID[ms].ID] := TTexture.Load(SamplerName);
   end;
   Stream.Free;
 
-  for ms := Low(ms) to High(ms) do
+  if Params.ReceiveShadow then
+    Samplers := Samplers + [msShadow];
+
+// normal mode
+  ModeMat[rmNormal] := Self;
+// shadow mode
+  if Params.CastShadow then
   begin
-    i := Ord(ms);
-    Shader.Uniform(utInt, SamplerName[ms]).Value(i);
+    Defines[DCount] := 'MODE_SHADOW';
+    ModeMat[rmShadow] := TMaterial.Create; // unmanaged
+    ModeMat[rmShadow].Samplers := Samplers;
+    ModeMat[rmShadow].Params   := Params;
+  // shader
+    ModeMat[rmShadow].Shader   := TShader.Load(ShaderName, Defines);
+  // texture
+    ModeMat[rmShadow].Texture[SamplerID[msDiffuse].ID] := Texture[SamplerID[msDiffuse].ID];
+    if Texture[SamplerID[msDiffuse].ID] <> nil then
+      Inc(Texture[SamplerID[msDiffuse].ID].Ref);
   end;
 
-  Uniform[muModelMatrix] := Shader.Uniform(utMat4, 'uModelMatrix');
-  Uniform[muViewPos]     := Shader.Uniform(utVec3, 'uViewPos');
-  Uniform[muLightPos]    := Shader.Uniform(utVec3, 'uLightPos');
-  Uniform[muLightParam]  := Shader.Uniform(utVec4, 'uLightParam');
-  Uniform[muAmbient]     := Shader.Uniform(utVec3, 'uAmbient');
-  Uniform[muMaterial]    := Shader.Uniform(utVec4, 'uMaterial');
-
-  for ma := Low(ma) to High(ma) do
-    Attrib[ma] := Shader.Attrib(AttribName[ma].AType, AttribName[ma].Name);
+  for rm := Low(rm) to High(rm) do
+    if ModeMat[rm] <> nil then
+      with ModeMat[rm] do
+      begin
+        Shader.Bind;
+        for ms in Samplers do
+          with SamplerID[ms] do
+            Shader.Uniform(Name, utInt).Value(ID);
+        for ma := Low(ma) to High(ma) do
+          with AttribID[ma] do
+            Attrib[ma] := Shader.Attrib(Name, AType, Norm);
+        for mu := Low(mu) to High(mu) do
+          with UniformID[mu] do
+            Uniform[mu] := Shader.Uniform(Name, UType);
+      end;
 end;
 
 destructor TMaterial.Destroy;
 var
   i : LongInt;
+  rm : TRenderMode;
 begin
   Shader.Free;
+
+  Texture[SamplerID[msShadow].ID] := nil; // shadow map is not material managed sampler
   for i := 0 to Length(Texture) - 1 do
     if Texture[i] <> nil then
       Texture[i].Free;
+
+  for rm := Low(rm) to High(rm) do
+    if (ModeMat[rm] <> nil) and (ModeMat[rm] <> Self) then
+      ModeMat[rm].Free;
 end;
 
 procedure TMaterial.Bind;
@@ -5723,34 +6427,54 @@ var
   LightPos   : array [0..MAX_LIGHTS - 1] of TVec3f;
   LightParam : array [0..MAX_LIGHTS - 1] of TVec4f;
 begin
-  Render.CullFace   := Params.CullFace;
-  Render.BlendType  := Params.BlendType;
-  Render.DepthWrite := Params.DepthWrite;
-  Render.AlphaTest  := Params.AlphaTest;
+  if ModeMat[Render.Mode] <> nil then
+    with ModeMat[Render.Mode] do
+    begin
+      Render.CullFace   := Params.CullFace;
+      Render.BlendType  := Params.BlendType;
+      Render.DepthWrite := Params.DepthWrite;
+      Render.AlphaTest  := Params.AlphaTest;
 
-  for i := 0 to MAX_LIGHTS - 1 do
-  begin
-    LightPos[i]     := Render.Light[i].Pos;
-    LightParam[i].x := Render.Light[i].Color.x;
-    LightParam[i].y := Render.Light[i].Color.y;
-    LightParam[i].z := Render.Light[i].Color.z;
-    LightParam[i].w := Sqr(Render.Light[i].Radius);
+      if Shader <> nil then
+      begin
+        Shader.Bind;
+        Uniform[muModelMatrix].Value(Render.ModelMatrix);
+        case Render.Mode of
+          rmNormal :
+            begin
+              for i := 0 to MAX_LIGHTS - 1 do
+              begin
+                LightPos[i]     := Render.Light[i].Pos;
+                LightParam[i].x := Render.Light[i].Color.x;
+                LightParam[i].y := Render.Light[i].Color.y;
+                LightParam[i].z := Render.Light[i].Color.z;
+                LightParam[i].w := Sqr(Render.Light[i].Radius);
+              end;
+              Uniform[muViewPos].Value(Render.ViewPos);
+              Uniform[muAmbient].Value(Render.Ambient);
+              Uniform[muLightPos].Value(LightPos, MAX_LIGHTS);
+              Uniform[muLightParam].Value(LightParam, MAX_LIGHTS);
+              Uniform[muMaterial].Value(Params.Uniform, 3);
+              Uniform[muTexOffset].Value(Render.TexOffset);
+              if Params.ReceiveShadow then
+              begin
+                Uniform[muLightMatrix].Value(Render.Light[0].Matrix);
+                Texture[SamplerID[msShadow].ID] := Render.Light[0].ShadowMap;
+              end;
+            end;
+          rmShadow :
+            begin
+              LightPos[0] := Render.Light[0].Pos;
+              Uniform[muLightPos].Value(LightPos, 1);
+              Uniform[muMaterial].Value(Params.Uniform, 1);
+            end;
+        end;
+      end;
+
+      for i := 0 to Length(Texture) - 1 do
+        if Texture[i] <> nil then
+          Texture[i].Bind(i);
   end;
-
-  if Shader <> nil then
-  begin
-    Shader.Bind;
-    Uniform[muModelMatrix].Value(Render.ModelMatrix);
-    Uniform[muViewPos].Value(Render.ViewPos);
-    Uniform[muAmbient].Value(Render.Ambient);
-    Uniform[muLightPos].Value(LightPos, MAX_LIGHTS);
-    Uniform[muLightParam].Value(LightParam, MAX_LIGHTS);
-    Uniform[muMaterial].Value(Params.Uniform, 3);
-  end;
-
-  for i := 0 to Length(Texture) - 1 do
-    if Texture[i] <> nil then
-      Texture[i].Bind(i);
 end;
 {$ENDIF}
 {$ENDREGION}
@@ -5970,17 +6694,20 @@ end;
 {$ENDIF}
 {$ENDREGION}
 
+// Skeleton ====================================================================
+{$REGION 'TSkeleton'}
+function TSkeleton.JointIndex(const JName: AnsiString): LongInt;
+begin
+  Result := 0;
+end;
+{$ENDREGION}
+
 // Mesh ========================================================================
 {$REGION 'TMeshBuffer'}
-class function TMeshBuffer.Init(BufferType: TBufferType; Size: LongInt; Data: Pointer): TMeshBuffer;
+constructor TMeshBuffer.Create(BufferType: TBufferType; Count, Stride: LongInt; Data: Pointer);
 begin
-  Result := TMeshBuffer.Create(BufferType, Size, Data);
-end;
-
-constructor TMeshBuffer.Create(BufferType: TBufferType; Size: LongInt; Data: Pointer);
-begin
-  inherited Create(Conv(LongInt(Self)));
-
+  Self.Count  := Count;
+  Self.Stride := Stride;
   if BufferType = btIndex then
   begin
     DType := GL_ELEMENT_ARRAY_BUFFER;
@@ -5995,23 +6722,41 @@ begin
   begin
     gl.GenBuffers(1, @ID);
     gl.BindBuffer(DType, ID);
-    gl.BufferData(DType, Size, Data, GL_STATIC_DRAW);
+    gl.BufferData(DType, Count * Stride, Data, GL_STATIC_DRAW);
     FData := nil;
   end else
   begin
-    FData := GetMemory(Size);
+    FData := GetMemory(Count * Stride);
     if Data <> nil then
-      Move(Data^, FData^, Size);
+      Move(Data^, FData^, Count * Stride);
   end;
+end;
+
+class function TMeshBuffer.Load(BufferType: TBufferType; Stream: TStream): TMeshBuffer;
+var
+  Count  : LongInt;
+  Stride : LongInt;
+  Data   : Pointer;
+begin
+  Stream.Read(Count, SizeOf(Count));
+  if Count > 0 then
+  begin
+    Stream.Read(Stride, SizeOf(Stride));
+    Data := GetMemory(Count * Stride);
+    Stream.Read(Data^, Count * Stride);
+    Result := TMeshBuffer.Create(BufferType, Count, Stride, Data);
+    FreeMemory(Data);
+  end else
+    Result := nil;
 end;
 
 destructor TMeshBuffer.Destroy;
 begin
-  ResManager.Delete(Self);
   if FData <> nil then
     FreeMemory(FData)
   else
     gl.DeleteBuffers(1, @ID);
+  inherited;
 end;
 
 procedure TMeshBuffer.SetData(Offset, Size: LongInt; Data: Pointer);
@@ -6040,13 +6785,230 @@ begin
 end;
 {$ENDREGION}
 
-{$REGION 'TMesh'}
-procedure TMesh.onRender;
+{$REGION 'TMeshData'}
+{$IFNDEF NO_MESH}
+class function TMeshData.Init: TMeshData;
 begin
-  Buffer[btIndex].Bind;
-  Buffer[btVertex].Bind;
-//  gl.VertexPointer(3, GL_FLOAT, SizeOf(TVec3f), @Map[0, 0]);
-//  gl.DrawElements(GL_TRIANGLES, sqr(LOD_SIZE - 1) * 2 * 3, GL_UNSIGNED_INT, @Face[0]);
+  Result := TMeshData.Create(Conv(LongInt(Self)));
+end;
+
+class function TMeshData.Load(const FileName: string): TMeshData;
+var
+  Stream : TStream;
+  i, Count : LongInt;
+begin
+  Result := TMeshData(ResManager.GetRef(FileName + EXT_XMS));
+  if Result = nil then
+  begin
+    Stream := TStream.Init(FileName + EXT_XMS);
+    if Stream <> nil then
+    begin
+      Result := TMeshData.Create(FileName);
+      with Result do
+      begin
+        Stream.Read(BBox, SizeOf(BBox));
+        Stream.Read(Mode, SizeOf(Mode));
+        Stream.Read(Attrib, SizeOf(Attrib));
+      // buffers
+        Buffer[btIndex]  := TMeshBuffer.Load(btIndex, Stream);
+        Buffer[btVertex] := TMeshBuffer.Load(btVertex, Stream);
+      // joint names
+        Stream.Read(Count, SizeOf(Count));
+        if Count > 0 then
+        begin
+          SetLength(JName, Count);
+          for i := 0 to Count - 1 do
+            JName[i] := Stream.ReadAnsi;
+        end;
+      end;
+      Stream.Free;
+    end;
+  end;
+end;
+
+destructor TMeshData.Destroy;
+var
+  bt : TBufferType;
+begin
+  for bt := Low(bt) to High(bt) do
+    if Buffer[bt] <> nil then
+      Buffer[bt].Free;
+  inherited;
+end;
+{$ENDIF}
+{$ENDREGION}
+
+{$REGION 'TMesh'}
+{$IFNDEF NO_MESH}
+constructor TMesh.Create(MeshData: TMeshData);
+begin
+  Data := MeshData;
+  SetLength(JIndex, Length(Data.JName));
+end;
+
+class function TMesh.Load(const FileName: string): TMesh;
+var
+  Data : TMeshData;
+begin
+  Data := TMeshData.Load(FileName);
+  if Data <> nil then
+    Result := TMesh.Create(Data)
+  else
+    Result := nil;
+end;
+
+destructor TMesh.Destroy;
+begin
+  Data.Free;
+  inherited;
+end;
+
+procedure TMesh.SetMaterial(Value: TMaterial);
+begin
+  if FMaterial <> Value then
+    FMaterial := Value;
+end;
+
+procedure TMesh.SetSkeleton(Value: TSkeleton);
+var
+  i : LongInt;
+begin
+  if FSkeleton <> Value then
+  begin
+    FSkeleton := Value;
+    if Value <> nil then
+      for i := 0 to Length(JIndex) - 1 do
+        JIndex[i] := Value.JointIndex(Data.JName[i]);
+  end;
+end;
+
+procedure TMesh.onRender;
+const                                                                // 2  2
+  AttribSize : array [TMaterialAttrib] of LongInt = (12, 4, 4, 4, 4, 4, 8, 12);
+  IndexType  : array [1..4] of TGLConst = (GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT, GL_FALSE, GL_UNSIGNED_INT);
+  MeshMode   : array [TMeshMode] of TGLConst = (GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_LINES);
+var
+  ma : TMaterialAttrib;
+  p  : Pointer;
+begin
+  if (Material <> nil) and (Material.ModeMat[Render.Mode] <> nil) then
+  begin
+    Material.Bind;
+
+    with Data do
+    begin
+    // set vertex attributes
+      Buffer[btVertex].Bind;
+      p := Buffer[btVertex].DataPtr;
+      for ma in Attrib do
+      begin
+        Material.ModeMat[Render.Mode].Attrib[ma].Enable;
+        Material.ModeMat[Render.Mode].Attrib[ma].Value(Buffer[btVertex].Stride, p^);
+        Inc(LongInt(p), AttribSize[ma]);
+      end;
+    // set indices & call DIP
+      if Buffer[btIndex] <> nil then
+      begin
+        Buffer[btIndex].Bind;
+        gl.DrawElements(MeshMode[Mode], Buffer[btIndex].Count, IndexType[Buffer[btIndex].Stride], Buffer[btIndex].DataPtr);
+      end else
+        gl.DrawArrays(MeshMode[Mode], 0, Buffer[btIndex].Count);
+{
+      for ma in Attrib do
+        Material.Attrib[ma].Disable;
+}
+    end;
+  end;
+end;
+{$ENDIF}
+{$ENDREGION}
+
+// Font ========================================================================
+{$REGION 'Font'}
+class function TFont.Load(const FileName: string): TFont;
+begin
+  Result := TFont(ResManager.GetRef(FileName + EXT_XFN));
+  if Result = nil then
+    Result := TFont.Create(FileName);
+end;
+
+constructor TFont.Create(const Name: string);
+const
+  XFN_MAGIC = $2B6E6678;
+var
+  Stream : TStream;
+  i : LongInt;
+  Header : record
+    Magic  : LongWord;
+    Offset : LongWord;
+  end;
+begin
+  inherited Create(Name + EXT_XFN);
+  Texture := TTexture.Load(Name);
+  Stream := TStream.Init(Name + EXT_XTX);
+  if Stream <> nil then
+  begin
+    Stream.Pos := 32; // reserved dds header part
+    Stream.Read(Header, SizeOf(Header));
+    if not Assert('Invalid font "' + Name + '"', Header.Magic <> XFN_MAGIC) then
+    begin
+      Stream.Pos := Header.Offset;
+      Stream.Read(i, SizeOf(i));
+      SetLength(CharData, i);
+      Stream.Read(CharData[0], Length(CharData) * SizeOf(CharData[0]));
+      for i := 0 to Length(CharData) - 1 do
+        Table[CharData[i].ID] := @CharData[i];
+    end;
+    Stream.Free;
+  end;
+end;
+
+destructor TFont.Destroy;
+begin
+  if Texture <> nil then
+    Texture.Free;
+  inherited;
+end;
+
+procedure TFont.Print(const Text: WideString);
+var
+  i, px : LongInt;
+begin
+  Texture.Bind;
+  gl.Beginp(GL_QUADS);
+    px := 0;
+    for i := 1 to Length(Text) do
+      if Table[Text[i]] <> nil then
+        with Table[Text[i]]^ do
+        begin
+          gl.TexCoord2f(tx, ty);           gl.Vertex2f(px, py);
+          gl.TexCoord2f(tx, ty + th);      gl.Vertex2f(px, py + h);
+          gl.TexCoord2f(tx + tw, ty + th); gl.Vertex2f(px + w, py + h);
+          gl.TexCoord2f(tx + tw, ty);      gl.Vertex2f(px + w, py);
+          Inc(px, w + 1);
+        end;
+  gl.Endp;
+end;
+
+procedure TFont.Print(const Text: WideString; x, y: LongInt; const Color: TVec4f);
+begin
+  gl.PushMatrix;
+  gl.Translatef(x, y, 0);
+  gl.Color4fv(Color);
+  Print(Text);
+  gl.PopMatrix;
+end;
+
+procedure TFont.Print(const Text: WideString; x, y: LongInt; const Color: TVec4f; sx, sy: LongInt; const SColor: TVec4f);
+begin
+  gl.PushMatrix;
+  gl.Translatef(x + sx, y + sy, 0);
+  gl.Color4fv(SColor);
+  Print(Text);
+  gl.Translatef(-sx, -sy, 0);
+  gl.Color4fv(Color);
+  Print(Text);
+  gl.PopMatrix;
 end;
 {$ENDREGION}
 
@@ -6059,6 +7021,7 @@ begin
   Align   := alNone;
   Visible := True;
   Enabled := True;
+  Color   := Vec4f(0.5, 0.5, 0.5, 1.0);
 end;
 
 destructor TControl.Destroy;
@@ -6247,29 +7210,26 @@ procedure TControl.OnRender;
 var
   i : LongInt;
 begin
-{
-  with Rect do
-  begin
-    gl.Color4f(0.5, 0.5, 0.5, 1);
-    gl.Beginp(GL_TRIANGLE_STRIP);
-      gl.Vertex2f(Left, Top);
-      gl.Vertex2f(Right, Top);
-      gl.Vertex2f(Left, Bottom);
-      gl.Vertex2f(Right, Bottom);
-    gl.Endp;
+  if Color.w > EPS then
+    with Rect do
+    begin
+      gl.Beginp(GL_TRIANGLE_STRIP);
+        gl.Color4fv(Color);
+        gl.Vertex2f(Left, Top);
+        gl.Vertex2f(Right, Top);
+        gl.Vertex2f(Left, Bottom);
+        gl.Vertex2f(Right, Bottom);
+      gl.Endp;
+    end;
 
-    gl.Color4f(0.25, 0.25, 0.25, 1);
-    gl.Beginp(GL_LINE_LOOP);
-      gl.Vertex2f(Left + 1, Top + 1);
-      gl.Vertex2f(Left + 1, Bottom);
-      gl.Vertex2f(Right, Bottom);
-      gl.Vertex2f(Right, Top + 1);
-    gl.Endp;
-  end;
-}
   for i := 0 to Length(Controls) - 1 do
     if Controls[i].Visible then
       Controls[i].OnRender;
+end;
+
+function TControl.OnEvent(const Event: TControlEvent): Boolean;
+begin
+  Result := False;
 end;
 {$ENDIF}
 {$ENDREGION}
@@ -6279,6 +7239,7 @@ end;
 constructor TGUI.Create(Left, Top, Width, Height: LongInt);
 begin
   inherited;
+  Color.w := 0;
   // Skin blablabla
 end;
 
@@ -6292,7 +7253,7 @@ end;
 procedure TGUI.OnRender;
 begin
   Render.DepthTest := False;
-  Render.CullFace  := False;
+  Render.CullFace  := cfNone;
   Render.ResetBind;
   Render.Viewport := CoreX.Rect(0, 0, Screen.Width, Screen.Height);
   Render.Set2D(0, Screen.Height, Screen.Width, 0);
@@ -6301,9 +7262,8 @@ end;
 {$ENDIF}
 {$ENDREGION}
 
-// Scene =======================================================================
+// Node ========================================================================
 {$REGION 'TNode'}
-{$IFNDEF NO_SCENE}
 constructor TNode.Create(const Name: string);
 begin
   FRBBox := InfBox;
@@ -6330,24 +7290,26 @@ begin
         begin
           FNodes[i] := FNodes[Length(FNodes) - 1];
           SetLength(FNodes, Length(FNodes) - 1);
-          FParent.UpdateBounds;
+          UpdateBounds;
           break;
         end;
 // add self to new parent node list
   if Value <> nil then
     with Value do
     begin
-      SetLength(FNodes, Length(FNodes) - 1);
+      SetLength(FNodes, Length(FNodes) + 1);
       FNodes[Length(FNodes) - 1] := Self;
     end;
-// recalc matrices
   FParent := Value;
+// recalc matrices
+{
   if FParent <> nil then
   begin
     FRMatrix := Matrix * FParent.Matrix.Inverse;
     FParent.UpdateBounds;
   end else
     FRMatrix := Matrix;
+}
 end;
 
 procedure TNode.SetRMatrix(const Value: TMat4f);
@@ -6419,23 +7381,120 @@ begin
     FParent.UpdateBounds;
 end;
 
+function TNode.Add(Node: TNode): TNode;
+begin
+  Node.Parent := Self;
+  Result := Node;
+end;
+
+function TNode.Remove(Node: TNode): Boolean;
+begin
+  Node.Parent := nil;
+  Result := True;
+end;
 
 procedure TNode.OnRender;
+var
+  i : LongInt;
 begin
-  //
+  for i := 0 to Length(FNodes) - 1 do
+    FNodes[i].OnRender;
+end;
+{$ENDREGION}
+
+// Model =======================================================================
+{$REGION 'TMeshNode'}
+{$IFNDEF NO_MESH}
+class function TMeshNode.Load(const FileName: string): TMeshNode;
+begin
+  Result := nil;
+end;
+
+constructor TMeshNode.Create(Mesh: TMesh; Matrix: TMat4f);
+begin
+  Self.Mesh     := Mesh;
+  Self.Name     := Mesh.Data.Name;
+  Self.FRBBox   := Mesh.Data.BBox;
+  Self.FRMatrix := Matrix;
+  Self.FMatrix  := Matrix;
+end;
+
+procedure TMeshNode.OnRender;
+begin
+{
+  b.Min := Nodes[i].AMatrix * Mesh.Data.BBox.Min;
+  b.Max := Nodes[i].AMatrix * Mesh.Data.BBox.Max;
+  if not Visible(b) then
+    continue;
+}
+  Render.ModelMatrix := FMatrix;
+  Mesh.OnRender;
+{
+  Render.ResetBind;
+  gl.Color3f(0, 1, 0);
+  gl.Disable(GL_TEXTURE_2D);
+  with FRBBox do
+  begin
+    gl.Beginp(GL_LINE_STRIP);
+      gl.Vertex3f(Min.x, Min.y, Min.z);
+      gl.Vertex3f(Max.x, Min.y, Min.z);
+      gl.Vertex3f(Max.x, Min.y, Max.z);
+      gl.Vertex3f(Min.x, Min.y, Max.z);
+      gl.Vertex3f(Min.x, Min.y, Min.z);
+      gl.Vertex3f(Min.x, Max.y, Min.z);
+      gl.Vertex3f(Max.x, Max.y, Min.z);
+      gl.Vertex3f(Max.x, Max.y, Max.z);
+      gl.Vertex3f(Min.x, Max.y, Max.z);
+      gl.Vertex3f(Min.x, Max.y, Min.z);
+      gl.Vertex3f(Max.x, Max.y, Min.z);
+      gl.Vertex3f(Max.x, Min.y, Min.z);
+      gl.Vertex3f(Max.x, Min.y, Max.z);
+      gl.Vertex3f(Max.x, Max.y, Max.z);
+      gl.Vertex3f(Min.x, Max.y, Max.z);
+      gl.Vertex3f(Min.x, Min.y, Max.z);
+    gl.Endp;
+  end;
+}
 end;
 {$ENDIF}
 {$ENDREGION}
 
-{$REGION 'TModel'}
-
+{$REGION 'TModelNode'}
+class function TModelNode.Load(const FileName: string): TModelNode;
+begin
+  Result := nil;
+end;
 {$ENDREGION}
 
+// Scene =======================================================================
 {$REGION 'TScene'}
 {$IFNDEF NO_SCENE}
+const
+  SHADOW_SIZE = 512;
+
 procedure TScene.Init;
+const
+  GL_TEXTURE_COMPARE_MODE = TGLConst($884C);
+  GL_COMPARE_R_TO_TEXTURE = TGLConst($884E);
+var
+  d, i : LongInt;
 begin
   Node := TNode.Create('main');
+  for i := 0 to 1 do
+  begin
+  //  ShadowTex[i] := TTexture.Create(SHADOW_SIZE, SHADOW_SIZE, nil, GL_RG, GL_RG16F, GL_HALF_FLOAT);
+    ShadowTex[i] := TTexture.Create(SHADOW_SIZE, SHADOW_SIZE, nil, GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT24);
+    ShadowTex[i].Bind();
+    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
+
+    ShadowTex[i].Clamp := True;
+    ShadowTex[i].Filter := tfBilinear;
+  end;
+  ShadowRT := TRenderTarget.Create(SHADOW_SIZE, SHADOW_SIZE, False);
+  ShadowBlur := TShader.Load('media/xprocess', ['FX_BLUR_RG']);
+  BlurOffset := ShadowBlur.Uniform('uBlurOffset', utVec2);
+  i := 0;
+  ShadowBlur.Uniform('sDiffuse', utInt).Value(i);
 end;
 
 procedure TScene.Load(const FileName: string);
@@ -6445,7 +7504,122 @@ end;
 
 procedure TScene.Free;
 begin
+  ShadowRT.Free;
+  ShadowTex[0].Free;
+  ShadowTex[1].Free;
+  ShadowBlur.Free;
   Node.Free;
+end;
+
+procedure TScene.OnRender;
+var
+  MainCamera  : TCamera;
+  LightCamera : TCamera;
+  i : LongInt;
+  v : TVec2f;
+begin
+  MainCamera := Render.Camera;
+  MainCamera.UpdateMatrix;
+  MainCamera.UpdatePlanes;
+
+  if Shadows then
+  begin
+  // create light camera
+    LightCamera.Init(cmLookAt, cpPersp);
+    LightCamera.ZNear  := 0.1;
+    LightCamera.ZFar   := Render.Light[0].Radius;
+    LightCamera.FOV    := 90;
+    LightCamera.Pos    := Render.Light[0].Pos;
+    LightCamera.Target := Vec3f(0, 1, 0);
+
+    LightCamera.UpdateMatrix;
+    LightCamera.UpdatePlanes;
+    with Render.Light[0] do
+    begin
+      Matrix.Identity;
+      Matrix.e03 := 0.5;
+      Matrix.e13 := 0.5;
+      Matrix.e23 := 0.5;
+      Matrix.e00 := 0.5;
+      Matrix.e11 := 0.5;
+      Matrix.e22 := 0.5;
+      Matrix := Matrix * LightCamera.ProjMatrix * LightCamera.ViewMatrix;
+    end;
+
+    Render.DepthTest := True;
+
+  // render shadow map
+    Render.Mode := rmShadow;
+    ShadowRT.Attach(rcDepth, ShadowTex[0]);
+    Render.Target := ShadowRT;
+    Render.Viewport := Rect(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    Render.Camera := LightCamera;
+    Render.Camera.Setup;
+    Render.Clear(False, True);
+    gl.Enable(GL_DEPTH_TEST);
+
+    Node.OnRender;
+    Render.Target := nil;
+
+    {
+  // shadow blur
+    Render.Set2D(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+    Render.DepthTest := False;
+    Render.CullFace := cfNone;
+    Render.AlphaTest := 0;
+    Render.BlendType := btNone;
+
+    ShadowBlur.Bind;
+    v := Vec2f(0, 0);
+    for i := 1 to 2 do
+    begin
+      ShadowRT.Attach(rcColor0, ShadowTex[i mod 2]);
+      Render.Target := ShadowRT;
+//      v := Vec2f(i mod 2, (i + 1) mod 2) * (1 / SHADOW_SIZE);
+      v := Vec2f((i div 2 * 2 - 1), 1) * (1 / SHADOW_SIZE) * sqrt(2);
+      BlurOffset.Value(v);
+      ShadowTex[(i + 1) mod 2].Bind;
+      gl.Beginp(GL_QUADS);
+        gl.TexCoord2f(0, 0); gl.Vertex2f(0, 0);
+        gl.TexCoord2f(0, 1); gl.Vertex2f(0, SHADOW_SIZE);
+        gl.TexCoord2f(1, 1); gl.Vertex2f(SHADOW_SIZE, SHADOW_SIZE);
+        gl.TexCoord2f(1, 0); gl.Vertex2f(SHADOW_SIZE, 0);
+      gl.Endp;
+      Render.Target := nil;
+    end;
+  }
+    Render.DepthTest := True;
+    Render.Light[0].ShadowMap := ShadowTex[0];
+  end;
+
+// main render
+  Render.DepthTest := True;
+  Render.Viewport := Rect(0, 0, Screen.Width, Screen.Height);
+  Render.Mode := rmNormal;
+  Render.Camera := MainCamera;
+  Render.Camera.Setup;
+  Node.OnRender;
+  Render.Light[0].ShadowMap := nil;
+
+  if Shadows then
+  begin
+  // show shadow map
+    Render.ResetBind;
+    Render.Set2D(0, 0, Screen.Width, Screen.Height);
+    Render.DepthTest := False;
+    Render.CullFace := cfNone;
+    Render.BlendType := btNone;
+    ShadowTex[0].Bind;
+    gl.Color3f(1, 1, 1);
+    gl.Beginp(GL_QUADS);
+      gl.TexCoord2f(0, 0); gl.Vertex2f(0, 0);
+      gl.TexCoord2f(0, 1); gl.Vertex2f(0, 256);
+      gl.TexCoord2f(1, 1); gl.Vertex2f(256, 256);
+      gl.TexCoord2f(1, 0); gl.Vertex2f(256, 0);
+    gl.Endp;
+    Render.DepthTest := True;
+  end;
+
 end;
 {$ENDIF}
 {$ENDREGION}
@@ -6481,6 +7655,9 @@ const
     'glTexParameteri',
     'glTexImage2D',
     'glTexSubImage2D',
+    'glGetTexImage',
+    'glGenerateMipmapEXT',
+    'glCopyTexSubImage2D',
     'glCompressedTexImage2DARB',
     'glActiveTextureARB',
     'glClientActiveTextureARB',
@@ -6491,6 +7668,7 @@ const
     'glStencilMask',
     'glEnable',
     'glDisable',
+    'glCullFace',
     'glAlphaFunc',
     'glBlendFunc',
     'glStencilFunc',
@@ -6538,6 +7716,8 @@ const
     'glOrtho',
     'glFrustum',
     'glReadPixels',
+    'glDrawBuffer',
+    'glReadBuffer',
     'glGenBuffersARB',
     'glDeleteBuffersARB',
     'glBindBufferARB',
@@ -6570,7 +7750,18 @@ const
     'glGetAttribLocation',
     'glEnableVertexAttribArray',
     'glDisableVertexAttribArray',
-    'glVertexAttribPointer'
+    'glVertexAttribPointer',
+    'glDrawBuffers',
+    'glGenFramebuffersEXT',
+    'glDeleteFramebuffersEXT',
+    'glBindFramebufferEXT',
+    'glFramebufferTexture2DEXT',
+    'glFramebufferRenderbufferEXT',
+    'glCheckFramebufferStatusEXT',
+    'glGenRenderbuffersEXT',
+    'glDeleteRenderbuffersEXT',
+    'glBindRenderbufferEXT',
+    'glRenderbufferStorageEXT'
   );
 var
   i    : LongInt;
@@ -6677,8 +7868,9 @@ begin
   {$ENDIF}
 end;
 
-procedure Assert(const Error: string; Flag: Boolean);
+function Assert(const Error: string; Flag: Boolean): Boolean;
 begin
+  Result := Flag;
   if Flag then
   begin
     MsgBox('Fatal Error', Error);
