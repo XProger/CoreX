@@ -82,6 +82,7 @@ type
     function LengthQ: Single;
     function Normal: TVec2f;
     function Dist(const v: TVec2f): Single;
+    function DistQ(const v: TVec2f): Single;
     function Lerp(const v: TVec2f; t: Single): TVec2f;
     function Min(const v: TVec2f): TVec2f;
     function Max(const v: TVec2f): TVec2f;
@@ -107,12 +108,14 @@ type
     function LengthQ: Single;
     function Normal: TVec3f;
     function Dist(const v: TVec3f): Single;
+    function DistQ(const v: TVec3f): Single;
     function Lerp(const v: TVec3f; t: Single): TVec3f;
     function Min(const v: TVec3f): TVec3f;
     function Max(const v: TVec3f): TVec3f;
     function Clamp(const MinClamp, MaxClamp: TVec3f): TVec3f;
     function Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
     function Angle(const v: TVec3f): Single;
+    function MultiOp(out r: TVec3f; const v1, v2, op1, op2: TVec3f): Single;
   end;
 
   TVec4f = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
@@ -160,6 +163,7 @@ type
     class operator Add(const a, b: TMat4f): TMat4f;
     class operator Multiply(const a, b: TMat4f): TMat4f;
     class operator Multiply(const m: TMat4f; const v: TVec3f): TVec3f;
+    class operator Multiply(const m: TMat4f; const v: TVec4f): TVec4f;
     class operator Multiply(const m: TMat4f; x: Single): TMat4f;
   {$ENDIF}
     procedure Identity;
@@ -207,6 +211,7 @@ type
   operator + (const a, b: TMat4f): TMat4f;
   operator * (const a, b: TMat4f): TMat4f;
   operator * (const m: TMat4f; const v: TVec3f): TVec3f;
+  operator * (const m: TMat4f; const v: TVec4f): TVec4f;
   operator * (const m: TMat4f; x: Single): TMat4f;
 {$ENDIF}
 
@@ -233,10 +238,19 @@ type
   TSphere = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     Center : TVec3f;
     Radius : Single;
+    function Intersect(const v: TVec3f): Boolean; overload;
+    function Intersect(const Ray: TRay3f; out tMin, tMax: Single): Boolean; overload;
   end;
 
   TBox = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
     Min, Max : TVec3f;
+    function Intersect(const v: TVec3f): Boolean; overload;
+    function Intersect(const Ray: TRay3f; out tMin, tMax: Single): Boolean; overload;
+  end;
+
+  TTriangle = {$IFDEF FPC} object {$ELSE} record {$ENDIF}
+    A, B, C : TVec3f;
+    function Intersect(const Ray: TRay3f; out u, v, t: Single; TwoSide: Boolean = False): Boolean;
   end;
 
 const
@@ -916,6 +930,7 @@ type
     Planes : array [0..5] of TVec4f;
     ViewMatrix : TMat4f;
     ProjMatrix : TMat4f;
+    ViewProjMatrix : TMat4f;
     procedure UpdateMatrix;
     procedure UpdatePlanes;
     procedure Setup;
@@ -1043,7 +1058,7 @@ type
   TTextureFilter = (tfNone, tfBilinear, tfTrilinear, tfAniso);
 
   TTexture = class(TResObject)
-    constructor Create(Width, Height: LongInt; Data: Pointer; CFormat: TGLConst = GL_RGBA; IFormat: TGLConst = GL_RGBA8; DFormat: TGLConst = GL_UNSIGNED_BYTE); overload;
+    constructor Create(Width, Height: LongInt; Data: Pointer = nil; CFormat: TGLConst = GL_RGBA; IFormat: TGLConst = GL_RGBA8; DFormat: TGLConst = GL_UNSIGNED_BYTE); overload;
     class function Load(const FileName: string): TTexture;
     destructor Destroy; override;
   private
@@ -1496,7 +1511,6 @@ type
     FParent  : TNode;
     FRBBox   : TBox;
     FRMatrix : TMat4f;
-    FNodes   : array of TNode;
     FMatrix  : TMat4f;
     FBBox    : TBox;
     procedure SetParent(const Value: TNode);
@@ -1504,9 +1518,11 @@ type
     procedure SetMatrix(const Value: TMat4f);
     procedure UpdateBounds;
   public
-    Name : string;
+    Name  : string;
+    Nodes : array of TNode;
     function Add(Node: TNode): TNode;
     function Remove(Node: TNode): Boolean;
+    function Count: LongInt;
     procedure OnRender; virtual;
     property Parent: TNode read FParent write SetParent;
     property RMatrix: TMat4f read FRMatrix write SetRMatrix;
@@ -1538,6 +1554,7 @@ type
   TMeshNode = class(TNode)
     class function Load(const FileName: string): TMeshNode;
     constructor Create(Mesh: TMesh; Matrix: TMat4f); overload;
+    destructor Destroy; override;
   public
     Mesh : TMesh;
     procedure OnRender; override;
@@ -1559,6 +1576,7 @@ const
   EXT_XSH = '.xsh';
   EXT_XMT = '.xmt';
   EXT_XMS = '.xms';
+  EXT_XMD = '.xmd';
   EXT_XFN = '.xfn';
   EXT_WAV = '.wav';
 
@@ -2194,6 +2212,14 @@ begin
   Result := p.Length;
 end;
 
+function TVec2f.DistQ(const v: TVec2f): Single;
+var
+  p : TVec2f;
+begin
+  p := v - Self;
+  Result := p.LengthQ;
+end;
+
 function TVec2f.Lerp(const v: TVec2f; t: Single): TVec2f;
 begin
   Result := Self + (v - Self) * t;
@@ -2329,6 +2355,14 @@ begin
   Result := p.Length;
 end;
 
+function TVec3f.DistQ(const v: TVec3f): Single;
+var
+  p : TVec3f;
+begin
+  p := v - Self;
+  Result := p.LengthQ;
+end;
+
 function TVec3f.Lerp(const v: TVec3f; t: Single): TVec3f;
 begin
   Result := Self + (v - Self) * t;
@@ -2372,6 +2406,22 @@ end;
 function TVec3f.Angle(const v: TVec3f): Single;
 begin
   Result := ArcCos(Dot(v) / sqrt(LengthQ * v.LengthQ))
+end;
+
+function TVec3f.MultiOp(out r: TVec3f; const v1, v2, op1, op2: TVec3f): Single;
+begin
+  r.x := v1.x * op1.x + v2.x * op2.x;
+  r.y := v1.y * op1.y + v2.y * op2.y;
+  r.z := v1.z * op1.z + v2.z * op2.z;
+  Result := r.x + r.y + r.z;
+  // add   = (v1, v2, 1, 1)
+  // sub   = (v1, v2, 1, -1)
+  // neg   = (v1, 0, -1, 0)
+  // dot   = (v1, 0, v2, 0)
+  // cross = (v1.yzx, v2.yzx, v2.zxy, -v1.zxy)
+  // lenq  = (v1, 0, v1, 0)
+  // lerp  = (v1, v2, 1 - t, t)
+  // etc.
 end;
 {$ENDREGION}
 
@@ -2665,6 +2715,18 @@ begin
 end;
 
 {$IFDEF FPC}operator * {$ELSE}class operator TMat4f.Multiply{$ENDIF}
+  (const m: TMat4f; const v: TVec4f): TVec4f;
+begin
+  with m do
+  begin
+    Result.x := e00 * v.x + e01 * v.y + e02 * v.z + e03 * v.w;
+    Result.y := e10 * v.x + e11 * v.y + e12 * v.z + e13 * v.w;
+    Result.z := e20 * v.x + e21 * v.y + e22 * v.z + e23 * v.w;
+    Result.w := e30 * v.x + e31 * v.y + e32 * v.z + e33 * v.w;
+  end;
+end;
+
+{$IFDEF FPC}operator * {$ELSE}class operator TMat4f.Multiply{$ENDIF}
   (const m: TMat4f; x: Single): TMat4f;
 begin
   with Result do
@@ -2825,6 +2887,141 @@ begin
   x := y * Aspect;
   Frustum(-x, x, -y, y, ZNear, ZFar);
 end;
+{$ENDREGION}
+
+{$REGION 'TSphere'}
+function TSphere.Intersect(const v: TVec3f): Boolean;
+begin
+  Result := Center.DistQ(v) < sqr(Radius);
+end;
+
+function TSphere.Intersect(const Ray: TRay3f; out tMin, tMax: Single): Boolean;
+var
+  p, d : Single;
+  v : TVec3f;
+begin
+  v := Ray.Pos - Center;
+  p := -v.Dot(Ray.Dir);
+  d := sqr(p) + sqr(Radius) - v.LengthQ;
+  if d > 0 then
+  begin
+    d := sqrt(d);
+    tMin := p - d;
+    tMax := p + d;
+    if tMax > 0 then
+    begin
+      if tMin < 0 then tMin := 0;
+      Result := True;
+      Exit;
+    end;
+  end;
+  Result := False;
+end;
+{$ENDREGION}
+
+{$REGION 'TBox'}
+function TBox.Intersect(const v: TVec3f): Boolean;
+begin
+  Result := (v.x >= Min.x) and (v.y >= Min.y) and (v.z >= Min.z) and
+            (v.x <= Max.x) and (v.y <= Max.y) and (v.z <= Max.z);
+end;
+
+function TBox.Intersect(const Ray: TRay3f; out tMin, tMax: Single): Boolean;
+
+  function Intersect1D(Pos, Dir, Min, Max: Single; var tMin, tMax: Single): Boolean;
+  var
+    t0, t1 : Single;
+  begin
+    if (Dir > -EPS) and (Dir < +EPS) then
+    begin
+      Result := (Pos >= Min) and (Pos <= Max);
+      Exit;
+    end else
+      Dir := 1 / Dir;
+
+    if Dir > 0 then
+    begin
+      t0 := (Min - Pos) * Dir;
+      t1 := (Max - Pos) * Dir;
+    end else
+    begin
+      t0 := (Max - Pos) * Dir;
+      t1 := (Min - Pos) * Dir;
+    end;
+
+    if t0 > tMin then tMin := t0;
+    if t1 < tMax then tMax := t1;
+
+    Result := (tMax > tMin) and (tMax > 0);
+  end;
+
+begin
+  tMin := -INF;
+  tMax := +INF;
+
+  Result := (Intersect1D(Ray.Pos.x, Ray.Dir.x, Min.x, Max.x, tMin, tMax)) and
+            (Intersect1D(Ray.Pos.y, Ray.Dir.y, Min.y, Max.y, tMin, tMax)) and
+            (Intersect1D(Ray.Pos.z, Ray.Dir.z, Min.z, Max.z, tMin, tMax));
+            
+  if Result and (tMin < 0) then
+    tMin := 0;
+end;
+{$ENDREGION}
+
+{$REGION 'TTriangle'}
+function TTriangle.Intersect(const Ray: TRay3f; out u, v, t: Single; TwoSide: Boolean): Boolean;
+label
+  tada;
+var
+  e1, e2, p, q, r : TVec3f;
+  d : Single;
+begin
+  e1 := B - A;
+  e2 := C - A;
+  p  := Ray.Dir.Cross(e2);
+  d  := p.Dot(e1);
+
+  if d > EPS then
+  begin
+    r := Ray.Pos - A;
+    u := p.Dot(r);
+    if (u >= 0) and (u <= d) then
+    begin
+      q := r.Cross(e1);
+      v := Ray.Dir.Dot(q);
+      if (v >= 0) and (u + v <= d) then
+        goto tada;
+    end;
+  end;
+
+  if (d < -EPS) and TwoSide then
+  begin
+    r := Ray.Pos - A;
+    u := p.Dot(r);
+    if (u <= 0) and (u >= d) then
+    begin
+      q := r.Cross(e1);
+      v := Ray.Dir.Dot(q);
+      if (v <= 0) and (u + v >= d) then
+        goto tada;
+    end;
+  end;
+
+  Result := False;
+  Exit;  
+tada:
+  d := 1 / d;
+  t := q.Dot(e2);
+  if t > EPS then
+  begin
+    t := t * d;  
+    u := u * d;
+    v := v * d;
+    Result := True;
+  end else
+    Result := False;
+end;
+
 {$ENDREGION}
 
 {$REGION 'Math'}
@@ -4117,7 +4314,6 @@ end;
 procedure TFileSys.Init;
 begin
   chdir(ExtractFileDir(ParamStr(0)));
-  Clear;
 end;
 
 function TFileSys.Open(const FileName: string; RW: Boolean): TStream;
@@ -5333,6 +5529,7 @@ begin
       cpOrtho : ProjMatrix.Ortho(-1, 1, -1, 1, zNear, zFar);
       //ProjMatrix.Ortho((Left - Right) * 0.5, (Right - Left) * 0.5, (Top - Bottom) * 0.5, (Bottom - Top) * 0.5, zNear, zFar);
     end;
+  ViewProjMatrix := ProjMatrix * ViewMatrix;
 end;
 
 procedure TCamera.UpdatePlanes;
@@ -5349,7 +5546,7 @@ procedure TCamera.UpdatePlanes;
   end;
 
 begin
-  with ProjMatrix * ViewMatrix do
+  with ViewProjMatrix do
   begin
     Plane(Planes[0], e30 - e00, e31 - e01, e32 - e02, e33 - e03); // right
     Plane(Planes[1], e30 + e00, e31 + e01, e32 + e02, e33 + e03); // left
@@ -5565,15 +5762,7 @@ end;
 
 procedure TRender.SetScissor(const Value: TRect);
 begin
-// fix!
-  if (Value.Left = 0) and (Value.Top = 0) and (Value.Right = 0) and (Value.Right = 0) then
-  begin
-    gl.Disable(GL_SCISSOR_TEST);
-  end else
-  begin
-    gl.Enable(GL_SCISSOR_TEST);
-    gl.Scissor(Value.Left, Value.Top, Value.Right, Value.Bottom);
-  end;
+  gl.Scissor(Value.Left, Value.Top, Value.Right - Value.Left, Value.Bottom - Value.Top);
 end;
 
 procedure TRender.SetBlendType(Value: TBlendType);
@@ -5741,10 +5930,10 @@ procedure TRender.Quad(x, y, w, h, s, t, sw, th: Single);
 var
   v : array [0..3] of TVec4f;
 begin
-  v[0] := Vec4f(x, y, s, t + th);
-  v[1] := Vec4f(x + w, y, s + sw, t + th);
-  v[2] := Vec4f(x + w, y + h, s + sw, t);
-  v[3] := Vec4f(x, y + h, s, t);
+  v[3] := Vec4f(x, y, s, t + th);
+  v[2] := Vec4f(x + w, y, s + sw, t + th);
+  v[1] := Vec4f(x + w, y + h, s + sw, t);
+  v[0] := Vec4f(x, y + h, s, t);
 
   gl.Beginp(GL_TRIANGLE_STRIP);
     gl.TexCoord2f(v[0].z, v[0].w);
@@ -6803,7 +6992,7 @@ begin
     Stream := TStream.Init(FileName + EXT_XMS);
     if Stream <> nil then
     begin
-      Result := TMeshData.Create(FileName);
+      Result := TMeshData.Create(FileName + EXT_XMS);
       with Result do
       begin
         Stream.Read(BBox, SizeOf(BBox));
@@ -6860,6 +7049,8 @@ end;
 destructor TMesh.Destroy;
 begin
   Data.Free;
+  if Material <> nil then
+    Material.Free;
   inherited;
 end;
 
@@ -7273,8 +7464,8 @@ end;
 destructor TNode.Destroy;
 begin
   Parent := nil;
-  while Length(FNodes) > 0 do
-    FNodes[0].Free;
+  while Length(Nodes) > 0 do
+    Nodes[0].Free;
   inherited;
 end;
 
@@ -7285,11 +7476,11 @@ begin
 // delete self from parent node list
   if FParent <> nil then
     with FParent do
-      for i := 0 to Length(FNodes) - 1 do
-        if FNodes[i] = Self then
+      for i := 0 to Length(Nodes) - 1 do
+        if Nodes[i] = Self then
         begin
-          FNodes[i] := FNodes[Length(FNodes) - 1];
-          SetLength(FNodes, Length(FNodes) - 1);
+          Nodes[i] := Nodes[Length(Nodes) - 1];
+          SetLength(Nodes, Length(Nodes) - 1);
           UpdateBounds;
           break;
         end;
@@ -7297,8 +7488,8 @@ begin
   if Value <> nil then
     with Value do
     begin
-      SetLength(FNodes, Length(FNodes) + 1);
-      FNodes[Length(FNodes) - 1] := Self;
+      SetLength(Nodes, Length(Nodes) + 1);
+      Nodes[Length(Nodes) - 1] := Self;
     end;
   FParent := Value;
 // recalc matrices
@@ -7330,8 +7521,8 @@ var
 begin
   FMatrix := Value;
 
-  for i := 0 to Length(FNodes) - 1 do
-    FNodes[i].Matrix := FMatrix * FNodes[i].FRMatrix;
+  for i := 0 to Length(Nodes) - 1 do
+    Nodes[i].Matrix := FMatrix * Nodes[i].FRMatrix;
 
 // Calculate BoundingBox
   with FRBBox do
@@ -7366,8 +7557,8 @@ var
   b : TBox;
 begin
   b := FBBox;
-  for i := 0 to Length(FNodes) - 1 do
-    with FNodes[i].BBox do
+  for i := 0 to Length(Nodes) - 1 do
+    with Nodes[i].BBox do
     begin
       b.Min := b.Min.Min(Min);
       b.Max := b.Max.Max(Max);
@@ -7393,12 +7584,17 @@ begin
   Result := True;
 end;
 
+function TNode.Count: LongInt;
+begin
+  Result := Length(Nodes);
+end;
+
 procedure TNode.OnRender;
 var
   i : LongInt;
 begin
-  for i := 0 to Length(FNodes) - 1 do
-    FNodes[i].OnRender;
+  for i := 0 to Length(Nodes) - 1 do
+    Nodes[i].OnRender;
 end;
 {$ENDREGION}
 
@@ -7417,6 +7613,13 @@ begin
   Self.FRBBox   := Mesh.Data.BBox;
   Self.FRMatrix := Matrix;
   Self.FMatrix  := Matrix;
+end;
+
+destructor TMeshNode.Destroy;
+begin
+  if Mesh <> nil then
+    Mesh.Free;
+  inherited;
 end;
 
 procedure TMeshNode.OnRender;
@@ -7461,8 +7664,27 @@ end;
 
 {$REGION 'TModelNode'}
 class function TModelNode.Load(const FileName: string): TModelNode;
+var
+  Stream : TStream;
+  i, Count : LongInt;
+  M : TMat4f;
+  Mesh : TMesh;
 begin
-  Result := nil;
+  Stream := TStream.Init(FileName + EXT_XMD);
+  if Stream <> nil then
+  begin
+    Result := TModelNode.Create(FileName  + EXT_XMD);
+    Stream.Read(Count, SizeOf(Count));
+    for i := 0 to Count - 1 do
+    begin
+      Stream.Read(M, SizeOf(M));
+      Mesh          := TMesh.Load(string(Stream.ReadAnsi));
+      Mesh.Material := TMaterial.Load(string(Stream.ReadAnsi));
+      Result.Add(TMeshNode.Create(Mesh, M));
+    end;
+    Stream.Free;
+  end else
+    Result := nil;
 end;
 {$ENDREGION}
 
@@ -7477,7 +7699,7 @@ const
   GL_TEXTURE_COMPARE_MODE = TGLConst($884C);
   GL_COMPARE_R_TO_TEXTURE = TGLConst($884E);
 var
-  d, i : LongInt;
+  i : LongInt;
 begin
   Node := TNode.Create('main');
   for i := 0 to 1 do
@@ -7491,10 +7713,12 @@ begin
     ShadowTex[i].Filter := tfBilinear;
   end;
   ShadowRT := TRenderTarget.Create(SHADOW_SIZE, SHADOW_SIZE, False);
-  ShadowBlur := TShader.Load('media/xprocess', ['FX_BLUR_RG']);
+{
+  ShadowBlur := TShader.Load('xprocess', ['FX_BLUR_RG']);
   BlurOffset := ShadowBlur.Uniform('uBlurOffset', utVec2);
   i := 0;
   ShadowBlur.Uniform('sDiffuse', utInt).Value(i);
+}
 end;
 
 procedure TScene.Load(const FileName: string);
@@ -7507,7 +7731,7 @@ begin
   ShadowRT.Free;
   ShadowTex[0].Free;
   ShadowTex[1].Free;
-  ShadowBlur.Free;
+//  ShadowBlur.Free;
   Node.Free;
 end;
 
@@ -7515,8 +7739,7 @@ procedure TScene.OnRender;
 var
   MainCamera  : TCamera;
   LightCamera : TCamera;
-  i : LongInt;
-  v : TVec2f;
+  OldRT : TRenderTarget;
 begin
   MainCamera := Render.Camera;
   MainCamera.UpdateMatrix;
@@ -7551,6 +7774,7 @@ begin
   // render shadow map
     Render.Mode := rmShadow;
     ShadowRT.Attach(rcDepth, ShadowTex[0]);
+    OldRT := Render.Target;
     Render.Target := ShadowRT;
     Render.Viewport := Rect(0, 0, SHADOW_SIZE, SHADOW_SIZE);
     Render.Camera := LightCamera;
@@ -7559,7 +7783,7 @@ begin
     gl.Enable(GL_DEPTH_TEST);
 
     Node.OnRender;
-    Render.Target := nil;
+    Render.Target := OldRT;
 
     {
   // shadow blur
