@@ -5,36 +5,40 @@ unit xmd;
 {$IFDEF DEBUG}
 //  {$DEFINE DEBUG_NODE}
 //  {$DEFINE DEBUG_BBOX}
-//  {$DEFINE DEBUG_MESH}
+  {$DEFINE DEBUG_MESH}
 {$ENDIF}
 
 interface
 
 uses
-  CoreX, Windows, NvTriStrip;
+  Windows, CoreX, NvTriStrip, xmt;
 
 {$REGION 'Common converter definitions'}
 type
-  TIntArray = array of LongInt;
-  TFloatArray = array of Single;
-  TStringArray = array of string;
+  TJoint = record
+    Weight : Single;
+    Joint  : array [0..1] of LongInt;
+  end;
+
+  TJointArray = array of TJoint;
 
   TUpAxis = (uaX, uaY, uaZ);
 
-  TSourceID = (SID_UNKNOWN, SID_VERTEX, SID_POSITION, SID_TANGENT, SID_BINORMAL, SID_NORMAL, SID_TEXCOORD0, SID_TEXCOORD1, SID_COLOR, SID_WEIGHT, SID_JOINT, SID_BIND_MATRIX);
+  TSourceID = (SID_UNKNOWN, SID_VERTEX, SID_POSITION, SID_TANGENT, SID_BINORMAL, SID_NORMAL, SID_TEXCOORD0, SID_TEXCOORD1, SID_COLOR, SID_JOINT, SID_WEIGHT, SID_BIND_MATRIX, SID_INPUT, SID_OUTPUT, SID_INTERPOLATION, SID_IN_TANGENT, SID_OUT_TANGENT);
   TSource = record
     SourceURL : string;
     Offset    : LongInt;
     Stride    : LongInt;
     ValueI    : TIntArray;
     ValueF    : TFloatArray;
-    ValueS    : TStringArray;
+    ValueS    : TStrArray;
+    ValueJ    : TJointArray;
   end;
   TSourceArray = array [TSourceID] of TSource;
 
 const
   UpAxisName : array [TUpAxis] of Char = ('X', 'Y', 'Z');
-  SourceName : array [TSourceID] of string = ('UNKNOWN', 'VERTEX', 'POSITION', 'TEXTANGENT', 'TEXBINORMAL', 'NORMAL', 'TEXCOORD', 'TEXCOORD', 'COLOR', 'WEIGHT', 'JOINT', 'INV_BIND_MATRIX');
+  SourceName : array [TSourceID] of string = ('UNKNOWN', 'VERTEX', 'POSITION', 'TEXTANGENT', 'TEXBINORMAL', 'NORMAL', 'TEXCOORD', 'TEXCOORD', 'COLOR', 'JOINT', 'WEIGHT', 'INV_BIND_MATRIX', 'INPUT', 'OUTPUT', 'INTERPOLATION', 'IN_TANGENT', 'OUT_TANGENT');
 
 var
   UnitScale : Single;
@@ -43,18 +47,6 @@ var
 {$ENDREGION}
 
 {$REGION 'Mesh format'}
-const
-// Format Flag
-  FF_UNKNOWN   = $00;
-  FF_COORD     = $01;
-  FF_TBN       = $02;
-  FF_NORMAL    = $04;
-  FF_TEXCOORD0 = $08;
-  FF_TEXCOORD1 = $10;
-  FF_COLOR     = $20;
-  FF_WEIGHT    = $40;
-  FF_JOINT     = $80;
-
 type
   TIndex = Word;
   TIndexArray = array of TIndex;
@@ -66,8 +58,7 @@ type
     Normal   : TVec3f;
     TexCoord : array [0..1] of TVec2f;
     Color    : TVec4f;
-    Weight   : TVec3f;
-    Joint    : TVec2f;
+    Joint    : TJoint;
   end;
   TVertexArray = array of TVertex;
 
@@ -78,50 +69,26 @@ type
     Normal   : LongInt;
     TexCoord : array [0..1] of LongInt;
     Color    : LongInt;
-    Weight   : LongInt;
-    Joint    : LongInt;
   end;
   TVertexIndexArray = array of TVertexIndex;
 
-  TMesh = object
-    Format : LongWord;
+  TNodeMesh = object
+    Name   : string;
+    Attrib : TMeshAttribs;
     Index  : TIndexArray;
     Vertex : TVertexArray;
     BBox   : TBox;
+    Mesh   : TMesh;
+    JName  : TStrArray;
   private
-    Buffer : array [TBufferType] of TMeshBuffer;
     procedure CalculateTBN;
     procedure CalculateBBox;
     procedure Optimize;
   public
-    procedure Init(Source: TSourceArray);
+    procedure Compile(Source: TSourceArray);
     procedure Free;
     procedure Save(const FileName: string);
-    procedure InitVBO;
   end;
-{$ENDREGION}
-
-{$REGION 'Material format'}
-  TNodeMaterial = record
-    URL       : string;
-    Name      : string;
-    ShadeType : (stLambert, stPhong, stBlinn);
-    Params    : TMaterialParams;
-    Defines   : array of string;
-    Sampler   : array [TMaterialSampler] of string;
-    Material  : TMaterial;
-  end;
-{
-  TSamplerFlag = (sfDiffuse, sfNormal, sfSpecular, sfNormalSpecular, sfEmission, sfReflect, sfLighting, sfAmbient);
-
-  TMaterial = record
-    Sampler  : TSamplerFlag;
-    Diffuse  : TVec4f;
-    Specular : TVec4f;
-    Ambient  : TVec3f;
-    Texture  : array [TSamplerFlag] of string;
-  end;
-}
 {$ENDREGION}
 
 {$REGION 'Light format'}
@@ -134,18 +101,21 @@ type
 type
   PNode = ^TNode;
   TNode = record
-    Parent   : LongInt;
-    Matrix   : TMat4f;
-    AMatrix  : TMat4f;
-    Joint    : Boolean;
-    Source   : TSourceArray;
-    Mesh     : TMesh;
-    Material : TNodeMaterial;
-    Name     : string;
-    MeshURL  : string;
-    MatURL   : string;
-    SkinURL  : string;
-    JointURL : string;
+    Parent    : LongInt;
+    Matrix    : TMat4f;
+    AMatrix   : TMat4f;
+    Joint     : Boolean;
+    Source    : TSourceArray;
+    Mesh      : TNodeMesh;
+    Material  : TNodeMaterial;
+    Id        : string;
+    Name      : string;
+    MeshURL   : string;
+    MatURL    : string;
+    MatSymbol : string;
+    SkinURL   : string;
+    JointURL  : string;
+    JointBind : TMat4f;
   end;
   TNodeArray = array of TNode;
 
@@ -164,13 +134,25 @@ const
     JointURL : '';
   );
 {$ENDREGION}
-
-procedure OnInit;
-procedure OnFree;
-procedure OnRender;
-
+        
 var
   FlipBinormal : Boolean = True;//False;
+  Nodes : TNodeArray;
+  BaseNodes : LongInt;
+
+  procedure Convert(const FileName: string);
+
+  procedure Info(const Text: string);
+  procedure Error(const Text: string);
+  procedure Warning(const Text: string);
+  procedure Hint(const Text: string);
+
+  function ConvURL(const URL: string): string;
+  function ExtractFileName(const FileName: string): string;
+  function ExtractFileDir(const FileName: string): string;
+  function DeleteExt(const FileName: string): string;
+
+  function ParseMatrix(const Str: string): TMat4f;
 
 implementation
 
@@ -217,59 +199,6 @@ begin
   end;
 end;
 
-function ParseCount(const Str: string): LongInt;
-var
-  i : LongInt;
-begin
-  Result := 1;
-  for i := 1 to Length(Str) do
-    if Str[i] = ' ' then
-      Result := Result + 1;
-end;
-
-function ParseNext(const Str: string; var Pos: LongInt): string;
-var
-  i : LongInt;
-begin
-  for i := Pos to Length(Str) + 1 do
-    if (Str[i] = ' ') or (i > Length(Str)) then
-    begin
-      Result := Copy(Str, Pos, i - Pos);
-      Pos := i + 1;
-      Exit;
-    end;
-end;
-
-function ParseFloat(const Str: string): TFloatArray;
-var
-  i, Pos : LongInt;
-begin
-  SetLength(Result, ParseCount(Str));
-  Pos := 1;
-  for i := 0 to Length(Result) - 1 do
-    Result[i] := Conv(ParseNext(Str, Pos), 0.0);
-end;
-
-function ParseInt(const Str: string): TIntArray;
-var
-  i, Pos : LongInt;
-begin
-  SetLength(Result, ParseCount(Str));
-  Pos := 1;
-  for i := 0 to Length(Result) - 1 do
-    Result[i] := Conv(ParseNext(Str, Pos), 0);
-end;
-
-function ParseString(const Str: string): TStringArray;
-var
-  i, Pos : LongInt;
-begin
-  SetLength(Result, ParseCount(Str));
-  Pos := 1;
-  for i := 0 to Length(Result) - 1 do
-    Result[i] := ParseNext(Str, Pos);
-end;
-
 function ParseMatrix(const Str: string): TMat4f;
 var
   Value : TFloatArray;
@@ -283,19 +212,22 @@ begin
   Result := TMat4f(Pointer(@Value[0])^);
 end;
 
-function ValidMatrix(const M: TMat4f): Boolean;
+function ValidMatrix(const M: TMat4f; const Name: string): Boolean;
 const
   ValidScale : TVec3f = (x: 1; y: 1; z: 1);
 var
-  Scale : TVec3f;
+  Scale, v : TVec3f;
 begin
-  Scale.x := Vec3f(M.e00, M.e10, M.e20).Length;
-  Scale.y := Vec3f(M.e01, M.e11, M.e21).Length;
-  Scale.z := Vec3f(M.e02, M.e12, M.e22).Length;
+  v := Vec3f(M.e00, M.e10, M.e20);
+  Scale.x := v.Length;
+  v := Vec3f(M.e01, M.e11, M.e21);
+  Scale.y := v.Length;
+  v := Vec3f(M.e02, M.e12, M.e22);
+  Scale.z := v.Length;
   Result := Scale = ValidScale;
   if not Result then
     with Scale do
-      Error('Invalid scale value: (' + Conv(x, 2) + ', ' + Conv(y, 2) + ', ' + Conv(z, 2) + ')');
+      Error('Invalid scale value for "' + Name + '": (' + Conv(x, 2) + ', ' + Conv(y, 2) + ', ' + Conv(z, 2) + ')');
 end;
 
 function ConvMatrix(const M: TMat4f): TMat4f;
@@ -316,6 +248,8 @@ begin
   case UpAxis of
     uaX : Result := XM * M * XM.Inverse;
     uaZ : Result := ZM * M * ZM.Inverse;
+  else
+    Result := M;
   end;
   Result := Result.Transpose;
   Result.Pos := Result.Pos * UnitScale;
@@ -327,12 +261,65 @@ begin
   if (URL <> '') and (URL[1] = '#') then
     Delete(Result, 1, 1);
 end;
+
+function ExtractFileName(const FileName: string): string;
+var
+  i : LongInt;
+begin
+  Result := FileName;
+  for i := Length(Result) downto 1 do
+    if (Result[i] = '/') or (Result[i] = '\') then
+    begin
+      if i = Length(Result) then
+        Result := ''
+      else
+        Result := Copy(Result, i + 1, Length(Result));
+      break;
+    end;
+end;
+
+function ExtractFileDir(const FileName: string): string;
+var
+  i : LongInt;
+begin
+  Result := '';
+  for i := Length(FileName) downto 1 do
+    if (FileName[i] = '/') or (FileName[i] = '\') then
+    begin
+      Result := Copy(FileName, 1, i);
+      break;
+    end;
+end;
+
+function DeleteExt(const FileName: string): string;
+var
+  i : LongInt;
+begin
+  Result := FileName;
+  for i := Length(Result) downto 1 do
+    if Result[i] = '.' then
+    begin
+      Result := Copy(Result, 1, i - 1);
+      break;
+    end;
+
+  while Pos('%20', Result) > 0 do
+  begin
+    i := Pos('%20', Result);
+    Delete(Result, i, 3);
+    Insert(' ', Result, i);
+  end;
+end;
 {$ENDREGION}
 
-{$REGION 'TMesh'}
-procedure TMesh.CalculateTBN;
 var
-  i  : Integer;
+  TriCount, MeshCount : LongInt;
+  XML : TXML;
+
+{$REGION 'TNodeMesh'}
+procedure TNodeMesh.CalculateTBN;
+var
+  i  : LongInt;
   v  : TVertex;
   e  : array [0..1] of TVec3f;
   st : array [0..1] of TVec2f;
@@ -342,7 +329,7 @@ var
       T, B : TVec3f;
     end;
   ResVertex : TVertexArray;
-  Count, Idx : Integer;
+  Count, Idx : LongInt;
 begin
 // Calculate per triangle Tangent & Binormal
   SetLength(Basis, Length(Index) div 3);
@@ -364,12 +351,14 @@ begin
     else
       k := 0;
 
-    Basis[i].T := (Vec3f(st[1].y * e[0].x - st[0].y * e[1].x,
-                         st[1].y * e[0].y - st[0].y * e[1].y,
-                         st[1].y * e[0].z - st[0].y * e[1].z) * k).Normal;
-    Basis[i].B := (Vec3f(st[0].x * e[1].x - st[1].x * e[0].x,
-                         st[0].x * e[1].y - st[1].x * e[0].y,
-                         st[0].x * e[1].z - st[1].x * e[0].z) * k).Normal;
+    Basis[i].T := Vec3f(st[1].y * e[0].x - st[0].y * e[1].x,
+                        st[1].y * e[0].y - st[0].y * e[1].y,
+                        st[1].y * e[0].z - st[0].y * e[1].z) * k;
+    Basis[i].T := Basis[i].T.Normal;
+    Basis[i].B := Vec3f(st[0].x * e[1].x - st[1].x * e[0].x,
+                        st[0].x * e[1].y - st[1].x * e[0].y,
+                        st[0].x * e[1].z - st[1].x * e[0].z) * k;
+    Basis[i].B := Basis[i].B.Normal;
   end;
 
 // Reconstruct mesh
@@ -390,10 +379,12 @@ begin
         if (Coord = v.Coord) and (Normal = v.Normal) and (TexCoord[0] = v.TexCoord[0]) and
            (Tangent.Dot(v.Tangent) > 0.5) and (Binormal.Dot(v.Binormal) > 0.5) then
         begin
-          Tangent  := (Tangent + v.Tangent).Normal;
-          Binormal := (Binormal + v.Binormal).Normal;
-          if (TexCoord[1] = v.TexCoord[1]) and
-             (Color = v.Color) and (Weight = v.Weight) and (Joint = v.Joint) then
+          Tangent  := (Tangent + v.Tangent);
+          Tangent  := Tangent.Normal;
+          Binormal := (Binormal + v.Binormal);
+          Binormal := Binormal.Normal;
+          if (TexCoord[1] = v.TexCoord[1]) and (Color = v.Color) and
+             (Joint.Weight = v.Joint.Weight) and (Joint.Joint[0] = v.Joint.Joint[0]) and (Joint.Joint[1] = v.Joint.Joint[1]) then
             break;
         end;
         Inc(Idx);
@@ -412,18 +403,20 @@ begin
     with ResVertex[i] do
     begin
       tn := Tangent;
-      Tangent := (Tangent - Normal * Normal.Dot(Tangent)).Normal;
+      Tangent := Tangent - Normal * Normal.Dot(Tangent);
+      Tangent := Tangent.Normal;
       if Binormal.Dot(Normal.Cross(tn)) < 0 then
-        Binormal := Tangent.Cross(Normal).Normal
+        Binormal := Tangent.Cross(Normal)
       else
-        Binormal := Normal.Cross(Tangent).Normal;
+        Binormal := Normal.Cross(Tangent);
+      Binormal := Binormal.Normal;
       if FlipBinormal then
         Binormal := Binormal * -1;
     end;
   Vertex := ResVertex;
 end;
 
-procedure TMesh.CalculateBBox;
+procedure TNodeMesh.CalculateBBox;
 var
   i : LongInt;
 begin
@@ -442,12 +435,12 @@ begin
   {$ENDIF}
 end;
 
-procedure TMesh.Optimize;
+procedure TNodeMesh.Optimize;
 var
   VertexRemap         : TVertexArray;
   Groups, GroupsRemap : PNVTSPrimitiveGroup;
   GroupCount          : Word;
-  i                   : Integer;
+  i                   : LongInt;
 begin
   nvtsSetCacheSize(32);
   nvtsSetStitchStrips(False);
@@ -466,15 +459,15 @@ begin
   end;
 end;
 
-procedure TMesh.Init(Source: TSourceArray);
+procedure TNodeMesh.Compile(Source: TSourceArray);
 const
-  FormatFlags : array [TSourceID] of LongWord = (
-    FF_UNKNOWN, FF_UNKNOWN, FF_COORD, FF_TBN, FF_TBN, FF_NORMAL, FF_TEXCOORD0, FF_TEXCOORD1, FF_COLOR, FF_WEIGHT, FF_JOINT, FF_UNKNOWN
+  FormatFlags : array [SID_POSITION..SID_JOINT] of TMaterialAttrib = (
+    maCoord, maCoord, maBinormal, maNormal, maTexCoord0, maTexCoord1, maColor, maJoint
   );
 
   procedure GetIndex(Idx: LongInt; S: TSourceID; out Value: LongInt);
   begin
-    if Format and FormatFlags[S] > 0 then
+    if (S in [SID_POSITION..SID_COLOR]) and (FormatFlags[S] in Attrib) and (Source[S].ValueI <> nil) then
       Value := Source[S].ValueI[Idx]
     else
       Value := 0;
@@ -482,11 +475,20 @@ const
 
   procedure GetValue(Idx: LongInt; S: TSourceID; out Value: TVec4f); overload;
   begin
-    if Format and FormatFlags[S] > 0 then
+    if (S in [SID_POSITION..SID_COLOR]) and (FormatFlags[S] in Attrib) and (Source[S].ValueF <> nil) then
       with Source[S] do
         Move(ValueF[Stride * Idx], Value, Stride * SizeOf(ValueF[0]))
     else
-    Value := NullVec4f;    
+    Value := NullVec4f;
+  end;
+
+  procedure GetValue(Idx: LongInt; S: TSourceID; out Value: TJoint); overload;
+  begin
+    with Source[SID_JOINT] do
+      if ValueJ <> nil then
+        Value := ValueJ[Idx]
+      else
+        FillChar(Value, SizeOf(Value), 0);
   end;
 
   procedure GetValue(Idx: LongInt; S: TSourceID; out Value: TVec3f); overload;
@@ -505,6 +507,14 @@ const
     Value := Vec2f(v.x, v.y);
   end;
 
+  procedure GetValue(Idx: LongInt; S: TSourceID; out Value: Single); overload;
+  var
+    v : TVec4f;
+  begin
+    GetValue(Idx, S, v);
+    Value := v.x;
+  end;
+
 var
   i : LongInt;
   S : TSourceID;
@@ -512,17 +522,11 @@ var
   v : TVertexIndex;
   VIndex : TVertexIndexArray;
 begin
-  Format := FF_UNKNOWN;
-  for S := Low(S) to High(S) do
+  Attrib := [];
+  for S := SID_POSITION to SID_JOINT do
     if Source[S].SourceURL <> '' then
-      Format := Format or FormatFlags[S];
-
-  if (FF_TBN and Format > 0) and (FF_NORMAL and Format = 0) then
-    Error('Mesh has no normals');
-
-  if FF_COORD and Format = 0 then
-    Error('Mesh has no vertex coordinates');
-
+      Attrib := Attrib + [FormatFlags[S]];
+  Attrib := Attrib + [maBinormal];
 // Construct index & vertex
   SetLength(Index, Length(Source[SID_POSITION].ValueI));
   SetLength(VIndex, Length(Index));
@@ -532,32 +536,20 @@ begin
   for i := 0 to Length(Index) - 1 do
   begin
     GetIndex(i, SID_POSITION, v.Coord);
-  {// Collada Maya 3.05C has incorrect Tangent & Binormal
-    GetIndex(i, SID_TANGENT, v.Tangent);
-    GetIndex(i, SID_BINORMAL, v.Binormal);
-  }
+    v.Tangent  := 0;
+    v.Binormal := 0;
     GetIndex(i, SID_NORMAL, v.Normal);
     GetIndex(i, SID_TEXCOORD0, v.TexCoord[0]);
     GetIndex(i, SID_TEXCOORD1, v.TexCoord[1]);
     GetIndex(i, SID_COLOR, v.Color);
 
-{
-    GetValue(i, SID_POSITION, v.Coord);
-    GetValue(i, SID_NORMAL, v.Normal);
-    GetValue(i, SID_TEXCOORD0, v.TexCoord[0]);
-    GetValue(i, SID_TEXCOORD1, v.TexCoord[1]);
-    GetValue(i, SID_COLOR, v.Color);
-
-    GetValue(i, SID_WEIGHT, v.Weight);
-    GetValue(i, SID_JOINT, v.Joint);
-}
     Idx := 0;
     while Idx < Count  do
       with VIndex[Idx] do
         if (Coord = v.Coord) and
-           (Tangent = v.Tangent) and (Binormal = v.Binormal) and (Normal = v.Normal) and
+           {(Tangent = v.Tangent) and (Binormal = v.Binormal) and} (Normal = v.Normal) and
            (TexCoord[0] = v.TexCoord[0]) and (TexCoord[1] = v.TexCoord[1]) and
-           (Color = v.Color) and (Weight = v.Weight) and (Joint = v.Joint) then
+           (Color = v.Color) then
           break
         else
           Inc(Idx);
@@ -584,6 +576,7 @@ begin
       GetValue(VIndex[i].TexCoord[0], SID_TEXCOORD0, TexCoord[0]);
       GetValue(VIndex[i].TexCoord[1], SID_TEXCOORD1, TexCoord[1]);
       GetValue(VIndex[i].Color, SID_COLOR, Color);
+      GetValue(VIndex[i].Coord, SID_JOINT, Joint); // Coord Index = Joint Index
     end;
 
 // Convert to Y-up axis
@@ -592,47 +585,149 @@ begin
     begin
       TexCoord[0] := Vec2f(TexCoord[0].x, -TexCoord[0].y);
       TexCoord[1] := Vec2f(TexCoord[1].x, -TexCoord[1].y);
-//      Binormal := Binormal * -1;
+
       Coord := Coord * UnitScale;
       case UpAxis of
         uaX :
           begin
-            Coord := Vec3f(-Coord.y, Coord.x, Coord.z);
+            Coord  := Vec3f(-Coord.y, Coord.x, Coord.z);
             Normal := Vec3f(-Normal.y, Normal.x, Normal.z);
           end;
         uaZ :
           begin
-            Coord := Vec3f(Coord.x, Coord.z, -Coord.y);
+            Coord  := Vec3f(Coord.x, Coord.z, -Coord.y);
             Normal := Vec3f(Normal.x, Normal.z, -Normal.y);
           end;
       end;
     end;
 
+// Joint Names
+  JName := Source[SID_JOINT].ValueS;
+  Info(' Joints : ' + Conv(Length(JName)));
+
   CalculateTBN;
 
   {$IFDEF DEBUG_MESH}
-    Info(' Format: (T: ' + Conv(Length(Index) div 3) + '; V: ' + Conv(Length(Vertex)) + ')');
+    Info(' Format : (T: ' + Conv(Length(Index) div 3) + '; V: ' + Conv(Length(Vertex)) + ')');
   {$ENDIF}
 
   CalculateBBox;
-//  Optimize;
 end;
 
-procedure TMesh.Free;
+procedure TNodeMesh.Free;
 begin
-  Buffer[btIndex].Free;
-  Buffer[btVertex].Free;
+  if Mesh <> nil then
+    Mesh.Free;
 end;
 
-procedure TMesh.Save(const FileName: string);
+procedure TNodeMesh.Save(const FileName: string);
+const
+  Mode : TMeshMode = mmTriList;
+  AttribSize : array [TMaterialAttrib] of LongInt = (12, 4, 4, 4, 4, 4, 4);
+var
+  Stream : TStream;
+  ma : TMaterialAttrib;
+  i, Count, Stride : LongInt;
+  v4b : TVec4ub;
+  v2s : TVec2s;
+  v4s : TVec4s;
+  v2f : TVec2f;
+  v3f : TVec3f;
+  v4f : TVec4f;
+  MinT, MaxT : array [0..1] of TVec2f;
 begin
-  //
-end;
-
-procedure TMesh.InitVBO;
-begin
-  Buffer[btIndex]  := TMeshBuffer.Init(btIndex, Length(Index) * SizeOf(Index[0]), @Index[0]);
-  Buffer[btVertex] := TMeshBuffer.Init(btVertex, Length(Vertex) * SizeOf(Vertex[0]), @Vertex[0]);
+  Stream := TStream.Init(FileName + EXT_XMS, True);
+  if Stream <> nil then
+  begin
+//    Stream.Write(Params, SizeOf(Params));
+    Stream.Write(BBox, SizeOf(BBox));
+    Stream.Write(Mode, SizeOf(Mode));
+    Stream.Write(Attrib, SizeOf(Attrib));
+  // indices
+    Stride := SizeOf(Index[0]);
+    Count  := Length(Index);
+    Stream.Write(Count, SizeOf(Count));
+    if Count > 0 then
+    begin
+      Stride := SizeOf(Index[0]);
+      Stream.Write(Stride, SizeOf(Stride));
+      for i := 0 to Count - 1 do
+        Stream.Write(Index[i], Stride);
+    end;
+  // vertices
+    Count := Length(Vertex);
+    Stream.Write(Count, SizeOf(Count));
+    if Count > 0 then
+    begin
+      Stride := 0;
+      for ma := Low(ma) to High(ma) do
+        if ma in Attrib then
+          Inc(Stride, AttribSize[ma]);
+      Stream.Write(Stride, SizeOf(Stride));
+      for i := 0 to Count - 1 do
+        with Vertex[i] do
+          for ma in Attrib do
+            case ma of
+              maCoord :
+                Stream.Write(Coord, SizeOf(Coord));
+              maBinormal, maNormal :
+                begin
+                  if ma = maBinormal then
+                    v3f := Vertex[i].Binormal
+                  else
+                    v3f := Vertex[i].Normal;
+                  v4b.x := Clamp(LongInt(Round((v3f.x * 0.5 + 0.5) * High(Byte))), Low(Byte), High(Byte));
+                  v4b.y := Clamp(LongInt(Round((v3f.y * 0.5 + 0.5) * High(Byte))), Low(Byte), High(Byte));
+                  v4b.z := Clamp(LongInt(Round((v3f.z * 0.5 + 0.5) * High(Byte))), Low(Byte), High(Byte));
+                  if ma = maBinormal then
+                  begin
+                    v3f := Normal.Cross(Binormal);
+                    v4b.w := Clamp(LongInt(Round((Sign(v3f.Dot(Tangent)) * 0.5 + 0.5) * High(Byte))), Low(Byte), High(Byte))
+                  end else
+                    v4b.w := 0; // align
+                  Stream.Write(v4b, SizeOf(v4b));
+                end;
+              maTexCoord0, maTexCoord1 :
+                begin
+                  if ma = maTexCoord0 then
+                    v2f := TexCoord[0]
+                  else
+                    v2f := TexCoord[1];
+                  v2s.x := Clamp(LongInt(Round(v2f.x * 1024)), Low(SmallInt), High(SmallInt));
+                  v2s.y := Clamp(LongInt(Round(v2f.y * 1024)), Low(SmallInt), High(SmallInt));
+                  Stream.Write(v2s, SizeOf(v2s));
+                end;
+              maColor :
+                begin
+                  with Color do
+                  begin
+                    v4b.x := Clamp(LongInt(Round(x * High(Byte))), Low(Byte), High(Byte));
+                    v4b.y := Clamp(LongInt(Round(y * High(Byte))), Low(Byte), High(Byte));
+                    v4b.z := Clamp(LongInt(Round(z * High(Byte))), Low(Byte), High(Byte));
+                    v4b.w := Clamp(LongInt(Round(w * High(Byte))), Low(Byte), High(Byte));
+                  end;
+                  Stream.Write(v4b, SizeOf(v4b));
+                end;
+              maJoint :
+                begin
+                // precalc joint index in shader uniform array (joint in shader is two vec4)
+                  v4b.x := Joint.Joint[0] * 2;
+                  v4b.y := Joint.Joint[1] * 2;
+                // one weight (second = 1.0 - weight)
+                  v4b.z := Clamp(LongInt(Round(Joint.Weight * High(Byte))), Low(Byte), High(Byte));
+                  v4b.w := 0;
+                  Stream.Write(v4b, SizeOf(v4b));
+                end;
+            end;
+    end;
+  // joint names
+    Count := Length(JName);
+    Stream.Write(Count, SizeOf(Count));
+    for i := 0 to Count - 1 do
+      Stream.WriteAnsi(AnsiString(JName[i]));
+    Stream.Free;
+  end else
+    Error('Can''t save "' + FileName + '"');
 end;
 {$ENDREGION}
 
@@ -644,7 +739,7 @@ begin
   with XML['library_controllers'] do
     for i := 0 to Count - 1 do
       with NodeI[i] do
-        if Params['id'].Value = URL then
+        if Params['id'] = URL then
         begin
           Result := Node['skin'];
           Exit;
@@ -655,82 +750,116 @@ end;
 {$ENDREGION}
 
 {$REGION 'GetMesh'}
-function GetMesh(const XML: TXML; const MeshURL, SkinURL: string; out Source : TSourceArray): Boolean;
+procedure GetInputs(const SourceXML, XML: TXML; var Source: TSourceArray);
 
-  procedure GetInputs(const SourceXML, XML: TXML);
-
-    function GetSourceID(const Semantic, SourceURL: string): TSourceID;
-    var
-      S    : TSourceID;
-      Flag : Boolean;
-    begin
-      Result := SID_UNKNOWN;
-      Flag   := True;
-      for S := Low(S) to High(S) do
-        if (SourceName[S] = Semantic) then
-        begin
-          Flag := False;
-          if (Source[S].SourceURL = '') or (Source[S].SourceURL = SourceURL) then
-          begin
-            Source[S].SourceURL := SourceURL;
-            Result := S;
-            Exit;
-          end;
-        end;
-      if Flag then
-        Warning('Unknown input semantic "' + Semantic + '"');
-    end;
-
+  function GetSourceID(const Semantic, SourceURL: string): TSourceID;
   var
-    i, j : LongInt;
-    S : TSourceID;
+    S    : TSourceID;
+    Flag : Boolean;
   begin
-    with XML do
-      for i := 0 to Count - 1 do
-        with NodeI[i] do
-          if Tag = 'input' then
-          begin
-            S := GetSourceID(Params['semantic'].Value, ConvURL(Params['source'].Value));
-            if S <> SID_UNKNOWN then
-            begin
-              Source[S].Offset := Conv(Params['offset'].Value, -1);
-              if S = SID_VERTEX then
-              begin
-                Source[S].SourceURL := '';
-                for S := Low(S) to High(S) do
-                  if Source[S].Offset = -1 then
-                    Source[S].Offset := Source[SID_VERTEX].Offset;
-              end else
-                with SourceXML do
-                  for j := 0 to Count - 1 do
-                    with NodeI[j] do
-                      if Tag = 'source' then
-                        for S := Low(S) to High(S) do
-                          if Params['id'].Value = Source[S].SourceURL then
-                          begin
-                            if Node['float_array'] <> nil then
-                              Source[S].ValueF := ParseFloat(Node['float_array'].Content);
-                            if Node['Name_array'] <> nil then
-                              Source[S].ValueS := ParseString(Node['Name_array'].Content);
-                            Source[S].Stride := Conv(Node['technique_common']['accessor'].Params['stride'].Value, 1);
-                          end;
-
-            end;
-          end;
+    Result := SID_UNKNOWN;
+    Flag   := True;
+    for S := Low(S) to High(S) do
+      if (SourceName[S] = Semantic) then
+      begin
+        Flag := False;
+        if (Source[S].SourceURL = '') or (Source[S].SourceURL = SourceURL) then
+        begin
+          Source[S].SourceURL := SourceURL;
+          Result := S;
+          Exit;
+        end;
+      end;
+    if Flag then
+      Warning('Unknown input semantic "' + Semantic + '"');
   end;
 
+var
+  i, j : LongInt;
+  S : TSourceID;
+begin
+  with XML do
+    for i := 0 to Count - 1 do
+      with NodeI[i] do
+        if Tag = 'input' then
+        begin
+          S := GetSourceID(Params['semantic'], ConvURL(Params['source']));
+          if S <> SID_UNKNOWN then
+          begin
+            Source[S].Offset := Conv(Params['offset'], -1);
+            if S = SID_VERTEX then
+            begin
+              Source[S].SourceURL := '';
+              for S := Low(S) to High(S) do
+                if Source[S].Offset = -1 then
+                  Source[S].Offset := Source[SID_VERTEX].Offset;
+            end else
+              with SourceXML do
+                for j := 0 to Count - 1 do
+                  with NodeI[j] do
+                    if Tag = 'source' then
+                      for S := Low(S) to High(S) do
+                        if Params['id'] = Source[S].SourceURL then
+                        begin
+                          if Node['float_array'] <> nil then
+                            if Source[S].ValueF = nil then
+                              Source[S].ValueF := ParseFloat(Node['float_array'].Content);
+                          if Node['Name_array'] <> nil then
+                            Source[S].ValueS := ParseStr(Node['Name_array'].Content);
+                          Source[S].Stride := Conv(Node['technique_common']['accessor'].Params['stride'], 1);
+                        end;
+          end;
+        end;
+end;
+
+
+function GetMesh(const XML: TXML; const MeshURL, SkinURL, MatSymbol: string; out Source: TSourceArray): Boolean;
+
   procedure GetIndices(const InputXML, SkinXML: TXML);
+  const
+    MAX_WEIGHTS = 6;
   var
-    i : LongInt;
+    i, j, k, Idx : LongInt;
+    w : Single;
     S : TSourceID;
-    IntArray    : TIntArray;
+    IntArray, CountArray : TIntArray;
     IndexCount  : LongInt;
     IndexStride : LongInt;
-  begin
-    with InputXML['triangles'] do
+    MaxWeight : array [0..1] of Single;
+    MaxJoint  : array [0..1] of LongInt;
+    JointMap  : array of LongInt;
+    JointName : TStrArray;
+
+    function AddJoint(Idx: LongInt): LongInt;
+    var
+      i : LongInt;
     begin
-      IndexCount  := Conv(Params['count'].Value, 0) * 3;
-      IntArray    := ParseInt(Node['p'].Content);
+      for i := 0 to Length(JointMap) - 1 do
+        if Idx = JointMap[i] then
+        begin
+          Result := i;
+          Exit;
+        end;
+      Result := Length(JointMap);
+      SetLength(JointMap, Result + 1);
+      JointMap[Result] := Idx;
+    end;
+
+  begin
+  // geometry
+    with InputXML do
+    begin
+    // collect polygons indices
+      IntArray := nil;
+      for i := 0 to Count - 1 do
+        if NodeI[i].Tag = 'p' then
+        begin
+          CountArray := ParseInt(NodeI[i].Content);
+          j := Length(IntArray);
+          SetLength(IntArray, j + Length(CountArray));
+          Move(CountArray[0], IntArray[j], Length(CountArray) * SizeOf(IntArray[0]));
+        end;
+      IndexCount  := Conv(Params['count'], 0) * 3;
       IndexStride := Length(IntArray) div IndexCount;
     end;
 
@@ -741,331 +870,230 @@ function GetMesh(const XML: TXML; const MeshURL, SkinURL: string; out Source : T
         for i := 0 to IndexCount - 1 do
           Source[S].ValueI[i] := IntArray[i * IndexStride + Source[S].Offset];
       end;
+
+  // skin controller
+    if SkinXML = nil then
+      Exit;
+  // weights / joint indices
+    with SkinXML['vertex_weights'] do
+    begin
+      CountArray := ParseInt(Node['vcount'].Content);
+      IntArray   := ParseInt(Node['v'].Content);
+      IndexCount := Conv(Params['count'], 0);
+
+      for i := 0 to IndexCount - 1 do
+        if CountArray[i] > MAX_WEIGHTS then
+        begin
+          Error(Conv(CountArray[i]) + ' influence joints per vertex (max ' + Conv(MAX_WEIGHTS) + ')');
+          Exit;
+        end;
+
+    // get joint/weight indices
+      SetLength(Source[SID_WEIGHT].ValueI, IndexCount * MAX_WEIGHTS);
+      SetLength(Source[SID_JOINT].ValueI, IndexCount * MAX_WEIGHTS);
+      SetLength(Source[SID_JOINT].ValueJ, IndexCount);
+      FillChar(Source[SID_WEIGHT].ValueI[0], SizeOf(Source[SID_WEIGHT].ValueI[0]) * IndexCount * MAX_WEIGHTS, 0);
+      FillChar(Source[SID_JOINT].ValueI[0], SizeOf(Source[SID_JOINT].ValueI[0]) * IndexCount * MAX_WEIGHTS, 0);
+      FillChar(Source[SID_JOINT].ValueJ[0], SizeOf(Source[SID_JOINT].ValueJ[0]) * IndexCount, 0);
+      Idx := 0;
+      for i := 0 to IndexCount - 1 do
+        for j := 0 to CountArray[i] - 1 do
+          for k := 0 to 1 do // joints, weights offsets
+          begin
+            if Source[SID_JOINT].Offset = k then // joint index
+              Source[SID_JOINT].ValueI[i * MAX_WEIGHTS + j] := IntArray[Idx]
+            else // weight index
+              Source[SID_WEIGHT].ValueI[i * MAX_WEIGHTS + j] := IntArray[Idx];
+            Inc(Idx);
+          end;
+
+    // calc weights & joints values
+      for i := 0 to IndexCount - 1 do
+      begin
+        FillChar(MaxWeight, SizeOf(MaxWeight), 0);
+        FillChar(MaxJoint, SizeOf(MaxJoint), 0);
+        for j := 0 to CountArray[i] - 1 do
+        begin
+          Idx := Source[SID_WEIGHT].ValueI[i * MAX_WEIGHTS + j];
+          w   := Source[SID_WEIGHT].ValueF[Idx];
+          if w > EPS then
+            if w > MaxWeight[0] then
+            begin
+              MaxWeight[1] := MaxWeight[0];
+              MaxJoint[1]  := MaxJoint[0];
+              MaxWeight[0] := w;
+              MaxJoint[0]  := Source[SID_JOINT].ValueI[i * MAX_WEIGHTS + j];
+            end else
+              if w > MaxWeight[1] then
+              begin
+                MaxWeight[1] := w;
+                MaxJoint[1]  := Source[SID_JOINT].ValueI[i * MAX_WEIGHTS + j];
+              end;
+        end;
+      // weights normalization
+        if CountArray[i] = 1 then
+          MaxJoint[1] := MaxJoint[0];
+        w := 1 - (MaxWeight[0] + MaxWeight[1]);
+        Source[SID_JOINT].ValueJ[i].Weight   := MaxWeight[0] + (w * 0.5);
+        Source[SID_JOINT].ValueJ[i].Joint[0] := AddJoint(MaxJoint[0]);
+        Source[SID_JOINT].ValueJ[i].Joint[1] := AddJoint(MaxJoint[1]);
+
+        if (MaxJoint[0] > 127) or (MaxJoint[1] > 127) then
+          Error(Conv(Max(MaxJoint[0], MaxJoint[1])) + ' influence joints per mesh (max: 127)');
+      end;
+
+    // convert sid to joint name
+      SetLength(JointName, Length(JointMap));
+      for i := 0 to Length(JointMap) - 1 do
+        for j := BaseNodes to Length(Nodes) - 1 do
+          if Nodes[j].Joint and (Nodes[j].JointURL = Source[SID_JOINT].ValueS[JointMap[i]]) then
+          begin
+            JointName[i] := Nodes[j].Name;
+            Move(Source[SID_BIND_MATRIX].ValueF[JointMap[i] * 16], Nodes[j].JointBind, SizeOf(TMat4f));
+            Nodes[j].JointBind := ConvMatrix(Nodes[j].JointBind);
+            break;
+          end;
+      Source[SID_JOINT].ValueS := JointName;
+    end;
   end;
 
 var
-  i : LongInt;
+  i, j : LongInt;
   InputXML : TXML;
   SkinXML  : TXML;
 begin
   {$IFDEF DEBUG_MESH}
-    Info('Mesh: ' + MeshURL);
+    Info('Mesh: ' + MeshURL + ' (' + MatSymbol + ')');
   {$ENDIF}
 
   Result := False;
   FillChar(Source, SizeOf(Source), 0);
   with XML['library_geometries'] do
     for i := 0 to Count - 1 do
-      if NodeI[i].Params['id'].Value = MeshURL then
+      if NodeI[i].Params['id'] = MeshURL then
         with NodeI[i] do
         begin
           InputXML := Node['mesh'];
           if InputXML = nil then
             Exit; // spline etc. is not supported
-          if InputXML.Node['triangles'] = nil then
-          begin
-            Error('Non triangulated geometry "' + MeshURL + '"');
-            Exit;
-          end;
-        // Read inputs
-          GetInputs(InputXML, InputXML['vertices']);
-          GetInputs(InputXML, InputXML['triangles']);
-          if SkinURL <> '' then
-          begin
-            SkinXML := GetSkin(XML, SkinURL);
-            if SkinXML <> nil then
+
+          GetInputs(InputXML, InputXML['vertices'], Source);
+{
+          if InputXML['triangles'] = nil then
+            Warning('Non triangulated geometry "' + MeshURL + '"');
+}
+          for j := 0 to InputXML.Count - 1 do
+            if ((InputXML.NodeI[j].Tag = 'triangles') or
+                (InputXML.NodeI[j].Tag = 'polylist') or
+                (InputXML.NodeI[j].Tag = 'polygons')) and
+               (InputXML.NodeI[j].Params['material'] = MatSymbol) then
             begin
-              GetInputs(SkinXML, SkinXML['joints']);
-              GetInputs(SkinXML, SkinXML['vertex_weights']);
-            end;
-          end else
-            SkinXML := nil;
-        // Read indices
-          GetIndices(InputXML, SkinXML);
-          Result := True;
-          Exit;
-        end;
-end;
-{$ENDREGION}
-
-{$REGION 'GetMaterial'}
-procedure GetMaterial(const XML: TXML; const URL: string; out NodeMaterial: TNodeMaterial);
-
-  function GetSampler(const XMLfx, XMLtex: TXML): string;
-  var
-    i : LongInt;
-    s : string;
-  begin
-    Result := '';
-    if XMLtex = nil then
-      Exit;
-
-    s := XMLtex.Params['texture'].Value;
-    with XMLfx['profile_COMMON'] do
-    begin
-      for i := 0 to Count - 1 do
-        if (NodeI[i].Tag = 'newparam') and (NodeI[i].Params['sid'].Value = s) then
-        begin
-          if NodeI[i]['sampler2D'] = nil then
-          begin
-            Error(s + ' is not 2d sampler');
-            Exit;
-          end;
-          s := NodeI[i]['sampler2D']['source'].Content;
-          break;
-        end;
-
-      for i := 0 to Count - 1 do
-        if (NodeI[i].Tag = 'newparam') and (NodeI[i].Params['sid'].Value = s) then
-        begin
-          s := NodeI[i]['surface']['init_from'].Content;
-          break;
-        end;
-    end;
-
-    with XML['library_images'] do
-      for i := 0 to Count - 1 do
-        if NodeI[i].Params['id'].Value = s then
-        begin
-          Result := NodeI[i]['init_from'].Content;
-          break;
-        end;
-
-    for i := Length(Result) downto 1 do
-      if Result[i] = '/' then
-      begin
-        if i = Length(Result) then
-          Result := ''
-        else
-          Result := Copy(Result, i + 1, Length(Result));
-        break;
-      end;
-    Info('Texture: "' + Result + '"');
-  end;
-
-  procedure AddDefine(const Define: string);
-  var
-    i : LongInt;
-  begin
-    with NodeMaterial do
-    begin
-    // if not in array
-      for i := 0 to Length(Defines) - 1 do
-        if Defines[i] = Define then
-          Exit;
-    // insert
-      for i := 0 to Length(Defines) - 1 do
-        if Defines[i] > Define then
-        begin
-          SetLength(Defines, Length(Defines) + 1);
-          Move(Defines[i], Defines[i + 1], (Length(Defines) - i - 1) * SizeOf(Defines[0]));
-          Defines[i] := Define;
-          Exit;
-        end;
-    end;
-  end;
-
-var
-  i, DCount : LongInt;
-  MatFX : string;
-  ShXML : TXML;
-  Stream : TStream;
-  ms : TMaterialSampler;
-begin
-  MatFX := '';
-  FillChar(NodeMaterial, SizeOf(NodeMaterial), 0);
-  NodeMaterial.URL := URL;
-// read material
-  with XML['library_materials'] do
-    for i := 0 to Count - 1 do
-      with NodeI[i] do
-        if Params['id'].Value = URL then
-        begin
-          NodeMaterial.Name := Params['name'].Value;
-          MatFX := ConvURL(Node['instance_effect'].Params['url'].Value);
-          break;
-        end;
-// read MatFX
-  if MatFX <> '' then
-    with XML['library_effects'] do
-      for i := 0 to Count - 1 do
-        if NodeI[i].Params['id'].Value = MatFX then
-          with NodeI[i].Node['profile_COMMON']['technique'] do
-          begin
-            ShXML := nil;
-
-            if Node['lambert'] <> nil then
-            begin
-              NodeMaterial.ShadeType := stLambert;
-              ShXML := Node['lambert'];
-            end else
-              if Node['blinn'] <> nil then
+            // Read inputs
+              GetInputs(InputXML, InputXML.NodeI[j], Source); // triangles->inputs
+              if SkinURL <> '' then
               begin
-                NodeMaterial.ShadeType := stBlinn;
-                ShXML := Node['blinn'];
-              end else
-                if Node['phong'] <> nil then
+                SkinXML := GetSkin(XML, SkinURL);
+                if SkinXML <> nil then
                 begin
-                  NodeMaterial.ShadeType := stPhong;
-                  ShXML := Node['phong'];
-                end else
-                  Error('Unknown material type in "' + URL + '"');
-
-            with NodeMaterial.Params do
-            begin
-              DepthWrite := True;
-              AlphaTest  := 1;
-              CullFace   := True;
-              BlendType  := btNormal;
-              Diffuse    := Vec4f(1, 1, 1, 1);
-              Ambient    := Vec3f(0, 0, 0);
-              Reflect    := 1;
-              Specular   := Vec3f(1, 1, 1);
-              Shininess  := 10;
+                  GetInputs(SkinXML, SkinXML['joints'], Source);
+                  GetInputs(SkinXML, SkinXML['vertex_weights'], Source);
+                end;
+              end else
+                SkinXML := nil;
+            // Read indices
+              GetIndices(InputXML.NodeI[j], SkinXML);
+              Result := True;
             end;
-
-            if ShXML = nil then
-              Exit;
-
-            with ShXML, NodeMaterial, Params do
-            begin
-              if (Node['shininess'] <> nil) and (Node['shininess']['float'] <> nil) then
-              begin
-                Shininess := Conv(Node['shininess']['float'].Content, 0.0);
-                if (ShadeType = stBlinn) and (Shininess > EPS) then
-                  Shininess := 4 / Shininess;
-              end;
-              if (Node['reflectivity'] <> nil) and (Node['reflectivity']['float'] <> nil) then
-                Reflect := Conv(Node['reflectivity']['float'].Content, 0.0);
-            // Diffuse
-              if Node['diffuse'] <> nil then
-              begin
-                Sampler[msDiffuse]  := GetSampler(XML['library_effects'].NodeI[i], Node['diffuse']['texture']);
-                if Node['diffuse']['color'] <> nil then
-                  Diffuse := TVec4f(Pointer(@ParseFloat(Node['diffuse']['color'].Content)[0])^);
-              end;
-            // Specular
-              if Node['specular'] <> nil then
-              begin
-                Sampler[msSpecular] := GetSampler(XML['library_effects'].NodeI[i], Node['specular']['texture']);
-                if (Node['specular'] <> nil) and (Node['specular']['color'] <> nil) then
-                  Specular := TVec3f(Pointer(@ParseFloat(Node['specular']['color'].Content)[0])^);
-              end;
-            // Ambient
-              if Node['ambient'] <> nil then
-              begin
-                Sampler[msAmbient]    := GetSampler(XML['library_effects'].NodeI[i], Node['ambient']['texture']);
-                if Node['ambient']['color'] <> nil then
-                  Ambient := TVec3f(Pointer(@ParseFloat(Node['ambient']['color'].Content)[0])^);
-              end;
-            // Emission
-              if Node['emission'] <> nil then
-                Sampler[msEmission] := GetSampler(XML['library_effects'].NodeI[i], Node['emission']['texture']);
-            // Reflect
-              if Node['reflective'] <> nil then
-                Sampler[msReflect]  := GetSampler(XML['library_effects'].NodeI[i], Node['reflective']['texture']);
-            end;
-            if (Node['extra'] <> nil) and (Node['extra']['technique'] <> nil) and (Node['extra']['technique']['bump'] <> nil) then
-              NodeMaterial.Sampler[msNormal] := GetSampler(XML['library_effects'].NodeI[i], Node['extra']['technique']['bump']['texture']);
-
-            break;
-          end;
-  with NodeMaterial do
-  begin
-  // Set defines
-    if Sampler[msDiffuse]  <> '' then AddDefine('MAP_DIFFUSE');
-    if Sampler[msNormal]   <> '' then AddDefine('MAP_NORMAL');
-    if Sampler[msSpecular] <> '' then AddDefine('MAP_SPECULAR');
-    if Sampler[msAmbient]  <> '' then AddDefine('MAP_AMBIENT');
-    if Sampler[msReflect]  <> '' then AddDefine('MAP_REFLECT');
-    if Sampler[msEmission] <> '' then AddDefine('MAP_EMISSION');
-    AddDefine('FX_SHADE');
-    case ShadeType of
-      stPhong   : AddDefine('FX_PHONG');
-      stBlinn   : AddDefine('FX_BLINN');
-    end;
-  // Saving
-    Stream := TStream.Init('cache/' + NodeMaterial.Name + '.xmt', True);
-    Stream.Write(Params, SizeOf(Params));
-    Stream.WriteAnsi('xshader');
-    DCount := Length(Defines);
-    Stream.Write(DCount, SizeOf(DCount)); // Defines count
-    for i := 0 to DCount - 1 do
-      Stream.WriteAnsi(AnsiString(Defines[i]));
-    for ms := Low(ms) to High(ms) do
-      Stream.WriteAnsi(AnsiString(NodeMaterial.Sampler[ms]));
-    Stream.Free;
-  end;
+          Exit;
+        end;
 end;
 {$ENDREGION}
 
 {$REGION 'GetNodes'}
-procedure GetNodes(const MainXML: TXML; out Nodes: TNodeArray);
+procedure GetNodes(const MainXML: TXML; var Nodes: TNodeArray);
 
   procedure CollectNodes(const XML: TXML; Parent: LongInt);
   var
     i, j : LongInt;
     MatNode : TXML;
+    MNode : TNode;
+    ParentIdx : LongInt;
   begin
     with XML do
       for i := 0 to Count - 1 do
         with NodeI[i] do
           if Tag = 'node' then
           begin
-            j := Length(Nodes);
-            SetLength(Nodes, j + 1);
-            Nodes[j] := ZeroNode;
-            Nodes[j].Parent   := Parent;
-            Nodes[j].Name     := Params['name'].Value;
-            Nodes[j].Joint    := Params['type'].Value = 'JOINT';
-            Nodes[j].JointURL := Params['sid'].Value;
+            MNode := ZeroNode;
+            MNode.Parent   := Parent;
+            MNode.Name     := Params['name'];
+            MNode.Joint    := Params['type'] = 'JOINT';
+            MNode.JointURL := Params['sid'];
+            MNode.Id       := Params['id'];
 
             MatNode := nil;
           // Matrix
             if Node['matrix'] <> nil then
-              Nodes[j].Matrix := ParseMatrix(Node['matrix'].Content);
-            Nodes[j].Matrix := ConvMatrix(Nodes[j].Matrix);
+              MNode.Matrix := ParseMatrix(Node['matrix'].Content);
+            MNode.Matrix := ConvMatrix(MNode.Matrix);
           // Mesh
           // without skin
             if Node['instance_geometry'] <> nil then
               with Node['instance_geometry'] do
               begin
-                Nodes[j].MeshURL := ConvURL(Params['url'].Value);
+                MNode.MeshURL := ConvURL(Params['url']);
                 MatNode := Node['bind_material'];
               end;
           // with skin
             if Node['instance_controller'] <> nil then
               with Node['instance_controller'] do
               begin
-                Nodes[j].SkinURL := ConvURL(Params['url'].Value);
+                MNode.SkinURL := ConvURL(Params['url']);
                 MatNode := Node['bind_material'];
-                Nodes[j].MeshURL := ConvURL(GetSkin(MainXML, Nodes[j].SkinURL).Params['source'].Value);
+                MNode.MeshURL := ConvURL(GetSkin(MainXML, MNode.SkinURL).Params['source']);
               end;
+
+            ParentIdx := Length(Nodes);
+            SetLength(Nodes, ParentIdx + 1);
+            Nodes[ParentIdx] := MNode;
+
+            MNode.Parent := ParentIdx;
+            MNode.Matrix.Identity;
+
           // Material
             if MatNode <> nil then
-              with MatNode['technique_common']['instance_material'] do
-                begin
-                  Nodes[j].MatURL := ConvURL(Params['target'].Value);
-                  GetMaterial(MainXML, Nodes[j].MatURL, Nodes[j].Material);
-                end;
+              with MatNode['technique_common'] do
+                for j := 0 to Count - 1 do
+                  with NodeI[j] do
+                    if Tag = 'instance_material' then
+                    begin
+                      MNode.MatURL    := ConvURL(Params['target']);
+                      MNode.MatSymbol := Params['symbol'];
+                      SetLength(Nodes, Length(Nodes) + 1);
+                      Nodes[Length(Nodes) - 1] := MNode;
+                      {$IFDEF DEBUG_NODE}
+                        Writeln('Node ID : ', j);
+                        Writeln(' Parent   : ', MNode.Parent);
+                        Writeln(' Name     : ', MNode.Name);
+                        if MNode.MeshURL <> '' then
+                          Writeln(' MeshURL  : ', MNode.MeshURL);
+                        if MNode.MatName <> '' then
+                          Writeln(' MatName  : ', MNode.MatName);
+                        if MNode.MatURL <> '' then
+                          Writeln(' MatURL   : ', MNode.MatURL);
+                        if MNode.SkinURL <> '' then
+                          Writeln(' SkinURL  : ', MNode.SkinURL);
+                        if MNode.JointURL <> '' then
+                          Writeln(' JointURL : ', MNode.JointURL);
+                        WriteMat4f(MNode.Matrix);
+                      {$ENDIF}
+                    end;
 
-            {$IFDEF DEBUG_NODE}
-              Writeln('Node ID : ', j);
-              Writeln(' Parent   : ', Nodes[j].Parent);
-              Writeln(' Name     : ', Nodes[j].Name);
-              if Nodes[j].MeshURL <> '' then
-                Writeln(' MeshURL  : ', Nodes[j].MeshURL);
-              if Nodes[j].MatName <> '' then
-                Writeln(' MatName  : ', Nodes[j].MatName);
-              if Nodes[j].MatURL <> '' then
-                Writeln(' MatURL   : ', Nodes[j].MatURL);
-              if Nodes[j].SkinURL <> '' then
-                Writeln(' SkinURL  : ', Nodes[j].SkinURL);
-              if Nodes[j].JointURL <> '' then
-                Writeln(' JointURL : ', Nodes[j].JointURL);
-              WriteMat4f(Nodes[j].Matrix);
-            {$ENDIF}
-            CollectNodes(XML.NodeI[i], j);
+            Nodes[ParentIdx].MeshURL   := '';
+            Nodes[ParentIdx].MatURL    := '';
+            Nodes[ParentIdx].MatSymbol := '';
+
+            CollectNodes(XML.NodeI[i], ParentIdx);
           end;
   end;
 
@@ -1074,13 +1102,255 @@ begin
 end;
 {$ENDREGION}
 
+{$REGION 'Skeleton'}
+procedure SaveSkeleton(const Name: string);
 var
-  CamPos, CamAngle : TVec3f;
-  Nodes  : TNodeArray;
-  TriCount, MeshCount : LongInt;
-  XML : TXML;
-  MeshMaterial : TMaterial;
+  Stream : TStream;
+  i, j : LongInt;
+  M : TMat4f;
 
+  Joint : array of record
+    Id        : string;
+    ParentId  : string;
+    Parent    : TJointIndex;
+    Bind      : TDualQuat;
+    Frame     : TDualQuat;
+    Name      : string;
+    HasBind   : Boolean;
+  end;
+
+begin
+  Info('Save skeleton to "' + Name + EXT_XSK + '"');
+
+  Joint := nil;
+  for i := BaseNodes to Length(Nodes) - 1 do
+    if Nodes[i].Joint then
+    begin
+      SetLength(Joint, Length(Joint) + 1);
+      with Joint[Length(Joint) - 1] do
+      begin
+        Id := Nodes[i].Id;
+
+        if (Nodes[i].Parent > -1) and (Nodes[Nodes[i].Parent].Joint) then
+          ParentId := Nodes[Nodes[i].Parent].Id
+        else
+          ParentId := '';
+
+        HasBind := Nodes[i].JointBind.Det > EPS;
+
+        Name := Nodes[i].Name;
+
+        M := Nodes[i].Matrix;
+        Frame := DualQuat(M.Rot, M.Pos);
+
+        M := Nodes[i].JointBind;
+        Bind := DualQuat(M.Rot, M.Pos);
+      end;
+    end;
+
+  // recalc parent indices
+  for i := 0 to Length(Joint) - 1 do
+    if Joint[i].ParentId = '' then
+      Joint[i].Parent := -1
+    else
+      for j := 0 to Length(Joint) - 1 do
+        if Joint[j].Id = Joint[i].ParentId then
+        begin
+          Joint[i].Parent := j;
+          break;
+        end;
+
+// info log
+  Info(' Index'#9'Parent'#9'Bind'#9'Joint Name');
+  for i := 0 to Length(Joint) - 1 do
+    if Joint[i].HasBind then
+      Writeln(' ', i, #9, Joint[i].Parent, #9, '+', #9, Joint[i].Name)
+    else
+      Writeln(' ', i, #9, Joint[i].Parent, #9, '-', #9, Joint[i].Name);
+
+// save to file
+  Stream := TStream.Init('cache/' + Name + EXT_XSK, True);
+  if Stream <> nil then
+  begin
+    i := Length(Joint);
+    Stream.Write(i, SizeOf(i));
+    for i := 0 to Length(Joint) - 1 do
+      Stream.WriteAnsi(AnsiString(Joint[i].Name));
+    for i := 0 to Length(Joint) - 1 do
+    begin
+      Stream.Write(Joint[i].Parent, SizeOf(Joint[i].Parent));
+      Stream.Write(Joint[i].Bind, SizeOf(Joint[i].Bind));
+      Stream.Write(Joint[i].Frame, SizeOf(Joint[i].Frame));
+    end;
+    Stream.Free;
+  end;
+end;
+{$ENDREGION}
+
+{$REGION 'Animation'}
+procedure SaveAnimation(const Name: string);
+type
+  TFrameFlag = (ffRotX, ffRotY, ffRotZ, ffPosX, ffPosY, ffPosZ);
+var
+  i, j, k, t : LongInt;
+  M : TMat4f;
+  Stream  : TStream;
+  NodeIdx : LongInt;
+  Source  : TSourceArray;
+  SourceId, TargetId : string;
+  FCount, FPS : LongInt;
+  Joint : array of record
+      Name  : string;
+      Frame : array of TMat4f;
+    end;
+  Flag : array of set of TFrameFlag;
+  SData : array of Single;
+  SCount : LongInt;
+  Rot, nRot : TQuat;
+  Pos, nPos : TVec3f;
+
+  procedure AddData(x: Single);
+  begin
+    SData[SCount] := x;
+    Inc(SCount);
+  end;
+
+begin
+  Info('Save animation to "' + Name + EXT_XAN + '"');
+// info log
+  Joint  := nil;
+  FPS    := 1;
+  FCount := 0;
+  Info(' Joint Name');
+  if XML['library_animations'] <> nil then
+    with XML['library_animations'] do
+      for i := 0 to Count - 1 do
+        if (NodeI[i].Tag = 'animation') and (NodeI[i]['channel'] <> nil) then
+          with NodeI[i] do
+            for j := 0 to Count - 1 do
+              if NodeI[j].Tag = 'channel' then
+              begin
+              // get channel params
+                with NodeI[j] do
+                begin
+                  SourceId := ConvURL(Params['source']);
+                  TargetId := Params['target'];
+                  for k := Length(TargetId) downto 1 do
+                    if TargetId[k] = '/' then
+                    begin
+                      TargetId := Copy(TargetId, 1, k - 1);
+                      break;
+                    end;
+                end;
+              // get node by TargetId (in global NodeArray)
+                NodeIdx := -1;
+                for k := BaseNodes to Length(Nodes) - 1 do
+                  if Nodes[k].Joint and // only joint animation export
+                    (Nodes[k].Id = TargetId) then
+                  begin
+                    NodeIdx := k;
+                    break;
+                  end;
+              // get channel sampler
+                if NodeIdx > -1 then
+                  for k := 0 to Count - 1 do
+                    if (NodeI[k].Tag = 'sampler') and (NodeI[k].Params['id'] = SourceID) then
+                    begin
+                      Source[SID_INPUT].SourceURL := '';
+                      Source[SID_OUTPUT].SourceURL := '';
+                      Source[SID_INTERPOLATION].SourceURL := '';
+                      Source[SID_INPUT].ValueF  := nil;
+                      Source[SID_OUTPUT].ValueF := nil;
+                      Source[SID_INTERPOLATION].ValueF := nil;
+                      GetInputs(XML['library_animations'].NodeI[i], NodeI[k], Source);
+                      Writeln(' ', TargetId);
+
+                    // frames count
+                      if (FCount > 0) and (Length(Source[SID_INPUT].ValueF) <> FCount) then
+                      begin
+                        Error('Invalid frames count (sampler must be baked)');
+                        Exit;
+                      end else
+                        FCount := Length(Source[SID_INPUT].ValueF);
+                    // frames per second
+                      if FCount > 1 then
+                        FPS := Round(1 / (Source[SID_INPUT].ValueF[1] - Source[SID_INPUT].ValueF[0]));
+
+                      SetLength(Joint, Length(Joint) + 1);
+                      with Joint[Length(Joint) - 1] do
+                      begin
+                        Name := TargetId;
+                        SetLength(Frame, FCount);
+                        for t := 0 to FCount - 1 do
+                        begin
+                          Move(Source[SID_OUTPUT].ValueF[t * 16], M, SizeOf(M));
+                          Frame[t] := ConvMatrix(M);
+                        end;
+                      end;
+                      break;
+                    end;
+              end;
+
+  Info(' FPS    : ' + Conv(FPS));
+  Info(' Frames : ' + Conv(FCount));
+
+// save to file
+  if FCount > 0 then
+  begin
+    Stream := TStream.Init('cache/' + Name + EXT_XAN, True);
+    if Stream <> nil then
+    begin
+      i := Length(Joint);
+      Stream.Write(i, SizeOf(i));
+      for i := 0 to Length(Joint) - 1 do
+        Stream.WriteAnsi(AnsiString(Joint[i].Name));
+      Stream.Write(FPS, SizeOf(FPS));
+      Stream.Write(FCount, SizeOf(FCount));
+
+      SetLength(Flag, FCount);
+      SetLength(SData, FCount * 6); // 6 = Rot & Pos
+      for i := 0 to Length(Joint) - 1 do
+      begin
+        Rot := Quat(0, 0, 0, 1);
+        Pos := Vec3f(0, 0, 0);
+        SCount := 0;
+        for j := 0 to FCount - 1 do
+        begin
+        // collect flags of changes
+          Flag[j] := [];
+          nRot := Joint[i].Frame[j].Rot;
+          nPos := Joint[i].Frame[j].Pos;
+          nRot := nRot.Normal;
+          if nRot.w < 0 then // to reconstruct w in TAnimData.Create, w must be greater than 0
+            nRot := nRot * -1;
+          if abs(nRot.x - Rot.x) > EPS then Flag[j] := Flag[j] + [ffRotX];
+          if abs(nRot.y - Rot.y) > EPS then Flag[j] := Flag[j] + [ffRotY];
+          if abs(nRot.z - Rot.z) > EPS then Flag[j] := Flag[j] + [ffRotZ];
+          if abs(nPos.x - Pos.x) > EPS then Flag[j] := Flag[j] + [ffPosX];
+          if abs(nPos.y - Pos.y) > EPS then Flag[j] := Flag[j] + [ffPosY];
+          if abs(nPos.z - Pos.z) > EPS then Flag[j] := Flag[j] + [ffPosZ];
+          Rot := nRot;
+          Pos := nPos;
+        // collect changed data
+          if ffRotX in Flag[j] then AddData(Rot.x);
+          if ffRotY in Flag[j] then AddData(Rot.y);
+          if ffRotZ in Flag[j] then AddData(Rot.z);
+          if ffPosX in Flag[j] then AddData(Pos.x);
+          if ffPosY in Flag[j] then AddData(Pos.y);
+          if ffPosZ in Flag[j] then AddData(Pos.z);
+        end;
+        Stream.Write(Flag[0], SizeOf(Flag[0]) * FCount);
+        Stream.Write(SCount, SizeOf(SCount));
+        Stream.Write(SData[0], SizeOf(SData[0]) * SCount);
+      end;
+      Stream.Free;
+    end;
+  end else
+    Info(' no animation');
+end;
+{$ENDREGION}
+
+{$REGION 'Convert'}
 procedure InitNodeProc(NodeIdx: LongInt); stdcall;
 
   function GetNodeMatrix(Idx: LongInt): TMat4f;
@@ -1093,30 +1363,28 @@ procedure InitNodeProc(NodeIdx: LongInt); stdcall;
 
 begin
   with Nodes[NodeIdx] do
-    if GetMesh(XML, MeshURL, SkinURL, Source) then
+    if GetMesh(XML, MeshURL, SkinURL, MatSymbol, Source) then
     begin
-      ValidMatrix(Matrix);
+      ValidMatrix(Matrix, Name);
       AMatrix := GetNodeMatrix(NodeIdx);
-      Nodes[NodeIdx].Mesh.Init(Nodes[NodeIdx].Source);
+      Nodes[NodeIdx].Mesh.Compile(Nodes[NodeIdx].Source);
     //  Node^.Source := nil;
       Inc(TriCount, Length(Nodes[NodeIdx].Mesh.Index) div 3);
       Inc(MeshCount);
     end else
       MeshURL := '';
 end;
-{$ENDREGION}
 
 procedure Convert(const FileName: string);
 var
   i : LongInt;
-var
   Thread : array of TThread;
-  TID : LongInt;
+  Skinned : Boolean;
 begin
-  XML := TXML.Create(FileName);
+  XML := TXML.Load(FileName);
   with XML['asset'] do
   begin
-    UnitScale := Conv(Node['unit'].Params['meter'].Value, 1.0);
+    UnitScale := Conv(Node['unit'].Params['meter'], 1.0);
     case Node['up_axis'].Content[1] of
       'X' : UpAxis := uaX;
       'Z' : UpAxis := uaZ;
@@ -1127,196 +1395,66 @@ begin
 
   Info('Unit Scale : ' + Conv(UnitScale, 4));
   Info('Up Axis    : ' + UpAxisName[UpAxis]);
+
+  BaseNodes := Length(Nodes);
+
   GetNodes(XML, Nodes);
   TriCount := 0;
   MeshCount := 0;
 // Init threads
-  SetLength(Thread, Render.CPUCount);
+  SetLength(Thread, 1);//Render.CPUCount);
   for i := 0 to Length(Thread) - 1 do
     Thread[i].CPUMask := 1 shl i;
-  TID := 0;
-  IsMultiThread := True;
 // Init nodes content
   Info('Convertation...');
-  for i := 0 to Length(Nodes) - 1 do
+  for i := BaseNodes to Length(Nodes) - 1 do
     if (Nodes[i].MeshURL <> '') then //and (Pos('m_', Nodes[i].MeshURL) = 1) then
-    begin
-      while True do
-        if Thread[TID].Done then
-        begin
-          Thread[TID].Init(@InitNodeProc, Pointer(i), True);
-          break;
-        end else
-        begin
-          TID := (TID + 1) mod Length(Thread);
-          if TID = 0 then
-            Sleep(1);
-        end;
-    end else
-      Nodes[i].MeshURL := '';
-// Wait for all threads done
-  TID := 0;
-  while TID < Length(Thread) do
-    if Thread[TID].Done then
-      TID := TID + 1
+      InitNodeProc(i)
     else
-      Sleep(1);
-
+      Nodes[i].MeshURL := '';
   Info(' Mesh : ' + Conv(MeshCount));
   Info(' Tri  : ' + Conv(TriCount));
-
+{
 // Init nodes render
   Info('Optimization...');
   for i := 0 to Length(Nodes) - 1 do
     if Nodes[i].MeshURL <> '' then
-    begin
       Nodes[i].Mesh.Optimize;
-      Nodes[i].Mesh.InitVBO;
+}
+// Save skeleton
+  Skinned := False;
+  for i := BaseNodes to Length(Nodes) - 1 do
+    if Nodes[i].Joint then
+    begin
+      Skinned := True;
+      break;
+    end;
+
+  if Skinned then
+    SaveSkeleton(DeleteExt(ExtractFileName(FileName)));
+  SaveAnimation(DeleteExt(ExtractFileName(FileName)));
+
+// Save/Init materials & meshes
+  Info('Initialization...');
+  for i := BaseNodes to Length(Nodes) - 1 do
+    if Nodes[i].MeshURL <> '' then
+    begin
+      GetMaterial(XML, Nodes[i].MatURL, Nodes[i].Material);
+
+      if Nodes[i].Mesh.JName <> nil then
+        Nodes[i].Material.Skin := True;
+
+      Writeln('mat: ', Nodes[i].Material.Name);
+      Nodes[i].Material.Save('cache/' + Nodes[i].Material.Name);
+      Nodes[i].Material.Material := TMaterial.Load(Nodes[i].Material.Name);
+      Nodes[i].Mesh.Name := Nodes[i].MeshURL + '_' + Nodes[i].MatSymbol;
+      Nodes[i].Mesh.Save('cache/' + Nodes[i].Mesh.Name);
+      Nodes[i].Mesh.Mesh := TMesh.Load(Nodes[i].Mesh.Name);
+      Nodes[i].Mesh.Mesh.Material := Nodes[i].Material.Material;
     end;
 
   XML.Free;
 end;
-
-procedure LoadShaders(const FileName: string; const Defines: array of string);
-begin
-  if MeshMaterial <> nil then
-    MeshMaterial.Free;
-  MeshMaterial := TMaterial.Load('test');
-end;
-
-procedure OnInit;
-var
-  i : LongInt;
-begin
-i := Render.Time;
-//  Convert('H:\room_maya.dae');
-  Convert('media/tanya_run2.dae');
-//  Convert('media/vasya.dae');
-//  Convert('H:\Projects\N4\bin\tools\mesh\s_lvl1.dae');
-//  Convert('media/nod.dae');
-Writeln('Total time: ', Render.Time - i, ' ms');
-
-  CamPos := Vec3f(0, 1, 1); //  Vec3f(0, 0.01, 0.01);
-//--- T: 309855; M: 360
-// Time: 222989
-// Time: 101151 (no optimize)
-
-  LoadShaders('media/xshader.txt', ['MAP_DIFFUSE', 'MAP_NORMAL', 'FX_SHADE', 'FX_BLINN', 'FX_PLASTIC']);
-end;
-
-procedure OnFree;
-var
-  i : LongInt;
-begin
-  MeshMaterial.Free;
-  for i := 0 to Length(Nodes) - 1 do
-    if Nodes[i].MeshURL <> '' then
-      Nodes[i].Mesh.Free;
-end;
-
-procedure OnRender;
-var
-  i : LongInt;
-
-  procedure UpdateCamera;
-  const
-    CAM_SPEED = 1;//0.005;
-  var
-    Dir    : TVec3f;
-    VSpeed : TVec3f;
-    PM, MM : TMat4f;
-  begin
-    if Input.Down[KM_L] then
-    begin
-      CamAngle.x := CamAngle.x + Input.Mouse.Delta.Y * 0.01;
-      CamAngle.y := CamAngle.y + Input.Mouse.Delta.X * 0.01;
-      CamAngle.x := Clamp(CamAngle.x, -pi/2 + EPS, pi/2 - EPS);
-    end;
-    Dir.x := sin(pi - CamAngle.y) * cos(CamAngle.x);
-    Dir.y := -sin(CamAngle.x);
-    Dir.z := cos(pi - CamAngle.y) * cos(CamAngle.x);
-    VSpeed := Vec3f(0, 0, 0);
-    with Input do
-    begin
-      if Down[KK_W] then VSpeed := VSpeed + Dir;
-      if Down[KK_S] then VSpeed := VSpeed - Dir;
-      if Down[KK_D] then VSpeed := VSpeed + Dir.Cross(Vec3f(0, 1, 0));
-      if Down[KK_A] then VSpeed := VSpeed - Dir.Cross(Vec3f(0, 1, 0));
-    end;
-    CamPos := CamPos + VSpeed.Normal * (Render.DeltaTime * CAM_SPEED);
-
-    MM.Identity;
-    MM.Rotate(CamAngle.x, Vec3f(1, 0, 0));
-    MM.Rotate(CamAngle.y, Vec3f(0, 1, 0));
-    MM.Translate(CamPos * -1);
-    PM.Perspective(90, Screen.Width/Screen.Height, 0.001, 100);
-
-    gl.MatrixMode(GL_PROJECTION);
-    gl.LoadMatrixf(PM);
-    gl.MatrixMode(GL_MODELVIEW);
-    gl.LoadMatrixf(MM);
-  end;
-
-var
-  ViewPos, LightPos : TVec3f;
-  V  : ^TVertex;
-begin
-  UpdateCamera;
-
-  ViewPos  := CamPos;
-  LightPos := Vec3f(10, 10, 10);
-
-  Render.ViewPos     := ViewPos;
-  Render.LightPos[0] := LightPos;
-
-  for i := 0 to Length(Nodes) - 1 do
-    if Nodes[i].MeshURL <> '' then
-      with Nodes[i].Mesh do
-      begin
-        V := Buffer[btVertex].DataPtr;
-
-        Buffer[btIndex].Bind;
-        Buffer[btVertex].Bind;
-
-        Render.ModelMatrix := Nodes[i].AMatrix;
-
-        MeshMaterial.Bind;
-        MeshMaterial.Attrib[maCoord].Value(SizeOf(TVertex), V^.Coord);
-        MeshMaterial.Attrib[maTangent].Value(SizeOf(TVertex), V^.Tangent);
-        MeshMaterial.Attrib[maBinormal].Value(SizeOf(TVertex), V^.Binormal);
-        MeshMaterial.Attrib[maNormal].Value(SizeOf(TVertex), V^.Normal);
-        MeshMaterial.Attrib[maTexCoord0].Value(SizeOf(TVertex), V^.TexCoord[0]);
-
-        gl.DrawElements(GL_TRIANGLES, Length(Index), GL_UNSIGNED_SHORT, Buffer[btIndex].DataPtr);
-{
-        gl.Disable(GL_LIGHTING);
-        gl.Color3f(0, 1, 0);
-        with Nodes[i].Mesh.BBox do
-        begin
-          gl.Beginp(GL_LINE_STRIP);
-            gl.Vertex3f(Min.x, Min.y, Min.z);
-            gl.Vertex3f(Max.x, Min.y, Min.z);
-            gl.Vertex3f(Max.x, Min.y, Max.z);
-            gl.Vertex3f(Min.x, Min.y, Max.z);
-            gl.Vertex3f(Min.x, Min.y, Min.z);
-            gl.Vertex3f(Min.x, Max.y, Min.z);
-            gl.Vertex3f(Max.x, Max.y, Min.z);
-            gl.Vertex3f(Max.x, Max.y, Max.z);
-            gl.Vertex3f(Min.x, Max.y, Max.z);
-            gl.Vertex3f(Min.x, Max.y, Min.z);
-            gl.Vertex3f(Max.x, Max.y, Min.z);
-            gl.Vertex3f(Max.x, Min.y, Min.z);
-            gl.Vertex3f(Max.x, Min.y, Max.z);
-            gl.Vertex3f(Max.x, Max.y, Max.z);
-            gl.Vertex3f(Min.x, Max.y, Max.z);
-            gl.Vertex3f(Min.x, Min.y, Max.z);
-          gl.Endp;
-        end;
-}
-      end;
-
-  if Input.Hit[KK_SPACE] then
-    LoadShaders('media/xshader.txt', ['MAP_NORMAL', 'FX_SHADE']);
-end;
+{$ENDREGION}
 
 end.
