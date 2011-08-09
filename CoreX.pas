@@ -14,7 +14,7 @@ unit CoreX;
 {====================================================================}
 interface
 
-//{$DEFINE FPS_CAPTION}
+{$DEFINE FPS_CAPTION}
 
 //{$DEFINE NO_SOUND}
 //{$DEFINE NO_GUI}
@@ -312,6 +312,7 @@ const
   function ArcCos(x: Single): Single; assembler;
   function ArcSin(x: Single): Single; assembler;
   function Log2(const X: Single): Single;
+  function InvSqrt(x: Single): Single;
   function Pow(x, y: Single): Single;
   function ToPow2(x: LongInt): LongInt;
 {$ENDREGION}
@@ -336,8 +337,19 @@ type
   PByteArray = ^TByteArray;
   TByteArray = array [0..1] of Byte;
 
+  TIntArray = array of LongInt;
+  TFloatArray = array of Single;
+  TStrArray = array of string;
+
   TRGBA = record
     R, G, B, A : Byte;
+  end;
+
+  TSize = record
+    Left    : SmallInt;
+    Top     : SmallInt;
+    Width   : SmallInt;
+    Height  : SmallInt;
   end;
 
 { Stream }
@@ -395,43 +407,43 @@ type
 
 { XML }
   TXMLParam = record
-    Name  : string;
-    Value : string;
+    Name  : WideString;
+    Value : WideString;
   end;
 
   TXMLParams = class
-    constructor Create(const Text: string);
+    constructor Create(const Text: WideString);
   private
     FCount  : LongInt;
     FParams : array of TXMLParam;
-    function GetParam(const Name: string): TXMLParam;
+    function GetParam(const Name: WideString): WideString;
     function GetParamI(Idx: LongInt): TXMLParam;
   public
     property Count: LongInt read FCount;
-    property Param[const Name: string]: TXMLParam read GetParam; default;
+    property Param[const Name: WideString]: WideString read GetParam; default;
     property ParamI[Idx: LongInt]: TXMLParam read GetParamI;
   end;
 
   TXML = class
     class function Load(const FileName: string): TXML;
-    constructor Create(const Text: string; BeginPos: LongInt);
+    constructor Create(const Text: WideString; BeginPos: LongInt);
     destructor Destroy; override;
   private
     FCount   : LongInt;
     FNode    : array of TXML;
-    FTag     : string;
-    FContent : string;
+    FTag     : WideString;
+    FContent : WideString;
     FDataLen : LongInt;
     FParams  : TXMLParams;
-    function GetNode(const TagName: string): TXML;
+    function GetNode(const TagName: WideString): TXML;
     function GetNodeI(Idx: LongInt): TXML;
   public
     property Count: LongInt read FCount;
-    property Tag: string read FTag;
-    property Content: string read FContent;
+    property Tag: WideString read FTag;
+    property Content: WideString read FContent;
     property DataLen: LongInt read FDataLen;
     property Params: TXMLParams read FParams;
-    property Node[const TagName: string]: TXML read GetNode; default;
+    property Node[const TagName: WideString]: TXML read GetNode; default;
     property NodeI[Idx: LongInt]: TXML read GetNodeI;
   end;
 
@@ -509,6 +521,14 @@ const
   function TrimChars(const Str: string; Chars: TCharSet): string;
   function Trim(const Str: string): string;
   function DeleteChars(const Str: string; Chars: TCharSet): string;
+  function StrReplace(const Str, FromStr, ToStr: WideString): WideString;
+  function ParseTrim(const Str: string): string;
+  function ParseCount(const Str: string): LongInt;
+  function ParseNext(const Str: string; var Pos: LongInt): string;
+  function ParseFloat(Str: string): TFloatArray;
+  function ParseInt(Str: string): TIntArray;
+  function ParseStr(Str: string): TStrArray;
+  function ParseSize(Str: string): TSize;
   function ExtractFileDir(const Path: string): string;
   function MemCmp(p1, p2: Pointer; Size: LongInt): LongInt;
 {$ENDREGION}
@@ -929,7 +949,7 @@ type
 {$ENDREGION}
 
 // Camera ----------------------------------------------------------------------
-{$REGION 'TCamera'}
+{$REGION 'Camera'}
   TCameraMode = (cmFree, cmTarget, cmLookAt);
   TCameraProj = (cpPersp, cpOrtho);
 
@@ -1139,16 +1159,16 @@ type
   end;
 
   TShader = class(TResObject)
-    class function Load(const FileName: string; const Defines: array of string): TShader;
+    class function Load(const FileName: string; const Defines: array of AnsiString): TShader;
     destructor Destroy; override;
   private
     FID      : LongWord;
     FUniform : array of TShaderUniform;
     FAttrib  : array of TShaderAttrib;
-    constructor Create(const FileName: string; const Defines: array of string);
+    constructor Create(const FileName: string; const Defines: array of AnsiString);
   public
-    function Uniform(const UName: string; UniformType: TShaderUniformType): TShaderUniform;
-    function Attrib(const AName: string; AttribType: TShaderAttribType; Norm: Boolean = False): TShaderAttrib;
+    function Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
+    function Attrib(AttribType: TShaderAttribType; const AName: string; Norm: Boolean = False): TShaderAttrib;
     procedure Bind;
   end;
 {$ENDREGION}
@@ -1160,9 +1180,14 @@ type
   TMaterialUniform  = (muModelMatrix, muLightMatrix, muViewPos, muJoint, muLightPos, muLightParam, muAmbient, muMaterial, muTexOffset);
 
   TMaterialSamplers = set of TMaterialSampler;
+  
+  TSamplerParams = record
+    OffsetUV : TVec2f;
+    RepeatUV : TVec2f;
+    RotateUV : Single;
+  end;
 
-{$IFNDEF NO_MATERIAL}
-
+{$IFNDEF NO_MATERIAL}     
 const
   SamplerID : array [TMaterialSampler] of record
       ID   : LongInt;
@@ -1176,11 +1201,12 @@ const
       (ID: 5; Name: 'sAlphaMask'),
       (ID: 6; Name: 'sReflect'),
       (ID: 7; Name: 'sShadow'),
-      (ID: 0; Name: 'sMask'),
-      (ID: 1; Name: 'sMap0'),
-      (ID: 2; Name: 'sMap1'),
-      (ID: 3; Name: 'sMap2'),
-      (ID: 4; Name: 'sMap3')
+      // FIX id!
+      (ID: 8; Name: 'sMask'),
+      (ID: 9; Name: 'sMap0'),
+      (ID: 10; Name: 'sMap1'),
+      (ID: 11; Name: 'sMap2'),
+      (ID: 12; Name: 'sMap3')
     );
 
   AttribID : array [TMaterialAttrib] of record
@@ -1191,8 +1217,8 @@ const
       (AType: atVec3f; Norm: False; Name: 'aCoord'),
       (AType: atVec4b; Norm: True;  Name: 'aBinormal'),
       (AType: atVec4b; Norm: True;  Name: 'aNormal'),
-      (AType: atVec2s; Norm: False; Name: 'aTexCoord0'),
-      (AType: atVec2s; Norm: False; Name: 'aTexCoord1'),
+      (AType: atVec2f; Norm: False; Name: 'aTexCoord0'),
+      (AType: atVec2f; Norm: False; Name: 'aTexCoord1'),
       (AType: atVec4b; Norm: True;  Name: 'aColor'),
       (AType: atVec4b; Norm: False; Name: 'aJoint')
     );
@@ -1221,6 +1247,7 @@ type
     BlendType     : TBlendType;
     CastShadow    : Boolean;
     ReceiveShadow : Boolean;
+    Sampler       : array [TMaterialSampler] of TSamplerParams; 
     case Integer of
       0 : (
           Diffuse   : TVec4f;
@@ -1492,18 +1519,19 @@ type
 {$REGION 'GUI'}
 {$IFNDEF NO_GUI}
 type
-  TAlign = (alNone, alLeft, alRight, alTop, alBottom, alClient);
-  TAnchors = set of (akLeft, akRight, akTop, akBottom);
   TShiftState = set of (ssShift, ssAlt, ssCtrl, ssLeft, ssRight, ssMiddle, ssDouble);
   TMouseButton = (mbLeft, mbRight, mbMiddle);
 
   TControlParams = record
-    Align   : TAlign;
-    Anchors : TAnchors;
-    Left    : LongInt;
-    Top     : LongInt;
-    Width   : LongInt;
-    Height  : LongInt;
+    Size    : TSize;
+    Alpha   : Single;
+    Visible : Boolean;
+    Enabled : Boolean;
+    TabStop : Byte;
+    Group   : Byte;
+    Tag     : LongInt;
+    Name    : WideString;
+    Text    : WideString;
   end;
 
   TEventType = (etMouseDClick, etMouseWheel, etMouseDown, etMouseUp, etMouseMove, etMouseEnter, etMouseLeave,
@@ -1538,51 +1566,46 @@ type
   end;
 
   TControl = class
-    constructor Create(Left, Top, Width, Height: LongInt);
+    constructor CreateCopy(Parent, Ctrl: TControl); virtual;
+    constructor CreateXML(Parent: TControl; XML: TXML);
+    constructor Create(Parent: TControl);
     destructor Destroy; override;
   private
     FParent : TControl;
-    Params  : TControlParams;
-    procedure Resize(Left, Top, Width, Height: LongInt); virtual;
-    procedure Realign;
-    procedure SetAlign(const Value: TAlign);
-    procedure SetAnchors(const Value: TAnchors);
-    procedure SetLeft(const Value: LongInt);
-    procedure SetTop(const Value: LongInt);
-    procedure SetWidth(const Value: LongInt);
-    procedure SetHeight(const Value: LongInt);
-    function GetRect: TRect;
+    RSize   : TSize;
+    ARect   : TRect;
+    procedure UpdateRect;
   public
-    Tag      : LongInt;
-    Visible  : Boolean;
-    Enabled  : Boolean;
-    Color    : TVec4f;
-    Caption  : string;
+    Params   : TControlParams;
     Controls : array of TControl;
     function AddCtrl(const Ctrl: TControl): TControl;
     function DelCtrl(const Ctrl: TControl): Boolean;
-    procedure BringToFront;
-    procedure OnRender; virtual;
     function OnEvent(const Event: TControlEvent): Boolean; virtual;
+    procedure BringToFront;
+    procedure Move(Left, Top, Width, Height: LongInt); virtual;
+    procedure OnRender; virtual;
     property Parent: TControl read FParent;
-    property Align: TAlign read Params.Align write SetAlign;
-    property Anchors: TAnchors read Params.Anchors write SetAnchors;
-    property Left: LongInt read Params.Left write SetLeft;
-    property Top: LongInt read Params.Top write SetTop;
-    property Width: LongInt read Params.Width write SetWidth;
-    property Height: LongInt read Params.Height write SetHeight;
-    property Rect: TRect read GetRect;
+    property Rect: TRect read ARect;
+    property Left: SmallInt read RSize.Left;
+    property Top: SmallInt read RSize.Top;
+    property Width: SmallInt read RSize.Width;
+    property Height: SmallInt read RSize.Height;
   end;
 
-  TPanel = class(TControl)
-    //
+  TImage = class(TControl)
+    constructor CreateCopy(Parent, Ctrl: TControl); override;
+    constructor CreateXML(Parent: TControl; XML: TXML);
+  public
+    Texture : TTexture;
+    TexRect : TVec4f;
+    procedure OnRender; override;
   end;
 
   TGUI = class(TControl)
     constructor Create(Left, Top, Width, Height: LongInt);
     destructor Destroy; override;
   public
-    Skin : TTexture;
+    Texture : TTexture;
     procedure OnRender; override;
   end;
 {$ENDIF}
@@ -1727,10 +1750,12 @@ type
     dwFlags      : LongWord;
     iPixelType   : Byte;
     cColorBits   : Byte;
-    SomeData1    : array [0..12] of Byte;
+    SomeData1    : array [0..5] of Byte;
+    cAlphaBits   : Byte;
+    SomeData2    : array [0..5] of Byte;
     cDepthBits   : Byte;
     cStencilBits : Byte;
-    SomeData2    : array [0..14] of Byte;
+    SomeData3    : array [0..14] of Byte;
   end;
 
   TDeviceMode = packed record
@@ -2438,6 +2463,12 @@ begin
     Result := Vec3f(0, 0, 0)
   else
     Result := Self * (1 / Len);
+{
+  Len := InvSqrt(x * x + y * y + z * z);
+  Result.x := x * Len;
+  Result.y := y * Len;
+  Result.z := z * Len;
+}
 end;
 
 function TVec3f.Dist(const v: TVec3f): Single;
@@ -2479,7 +2510,7 @@ function TVec3f.Clamp(const MinClamp, MaxClamp: TVec3f): TVec3f;
 begin
   Result := Vec3f(CoreX.Clamp(x, MinClamp.x, MaxClamp.x), 
                   CoreX.Clamp(y, MinClamp.y, MaxClamp.y), 
-		  CoreX.Clamp(z, MinClamp.z, MaxClamp.z));
+                  CoreX.Clamp(z, MinClamp.z, MaxClamp.z));
 end;
 
 function TVec3f.Rotate(Angle: Single; const Axis: TVec3f): TVec3f;
@@ -3427,6 +3458,15 @@ asm
   fwait
 end;
 
+function InvSqrt(x: Single): Single;
+var
+  i : LongInt absolute x;
+begin
+  Result := 0.5 * x;
+  i := $5F375A86 - (i shr 1);
+  Result := x * (1.5 - Result * x * x);
+end;
+
 function Pow(x, y: Single): Single;
 begin
   Result := exp(ln(x) * y);
@@ -3838,7 +3878,7 @@ end;
 {$ENDREGION}
 
 {$REGION 'TXMLParam'}
-constructor TXMLParams.Create(const Text: string);
+constructor TXMLParams.Create(const Text: WideString);
 var
   i          : LongInt;
   Flag       : (F_BEGIN, F_NAME, F_VALUE);
@@ -3880,7 +3920,7 @@ begin
           else
             if ReadValue then
             begin
-              FParams[ParamIdx].Value := TrimChars(Trim(Copy(Text, IndexBegin, i - IndexBegin)), ['"']);
+              FParams[ParamIdx].Value := Trim(Copy(Text, IndexBegin, i - IndexBegin));
               Flag := F_BEGIN;
               ReadValue := False;
               ParamIdx := -1;
@@ -3889,24 +3929,21 @@ begin
         end;
     end;
   if ParamIdx <> -1 then
-    FParams[ParamIdx].Value := TrimChars(Trim(Copy(Text, IndexBegin, Length(Text) - IndexBegin + 1)), ['"']);
+    FParams[ParamIdx].Value := Trim(Copy(Text, IndexBegin, Length(Text) - IndexBegin + 1));
   FCount := Length(FParams);
 end;
 
-function TXMLParams.GetParam(const Name: string): TXMLParam;
-const
-  NullParam : TXMLParam = (Name: ''; Value: '');
+function TXMLParams.GetParam(const Name: WideString): WideString;
 var
   i : LongInt;
 begin
   for i := 0 to Count - 1 do
     if FParams[i].Name = Name then
     begin
-      Result.Name  := FParams[i].Name;
-      Result.Value := FParams[i].Value;
+      Result := FParams[i].Value;
       Exit;
     end;
-  Result := NullParam;
+  Result := '';
 end;
 
 function TXMLParams.GetParamI(Idx: LongInt): TXMLParam;
@@ -3920,7 +3957,7 @@ end;
 class function TXML.Load(const FileName: string): TXML;
 var
   Stream   : TStream;
-  Text     : string;
+  Text     : WideString;
   Size     : LongInt;
   UTF8Text : UTF8String;
 begin
@@ -3930,36 +3967,53 @@ begin
     Size := Stream.Size;
     SetLength(UTF8Text, Size);
     Stream.Read(UTF8Text[1], Size);
-    Text := UTF8ToString(UTF8Text);
+    Text := UTF8Decode(UTF8Text);//UTF8ToWideString(UTF8Text);//UTF8ToString(UTF8Text);
     Result := Create(Text, 1);
     Stream.Free;
   end else
     Result := nil;
 end;
 
-constructor TXML.Create(const Text: string; BeginPos: LongInt);
+constructor TXML.Create(const Text: WideString; BeginPos: LongInt);
 var
   i, j : LongInt;
-  Flag : (F_BEGIN, F_TAG, F_PARAMS, F_CONTENT, F_END);
+  Flag : (F_BEGIN, F_COMMENT, F_TAG, F_PARAMS, F_CONTENT, F_END);
   BeginIndex : LongInt;
   TextFlag   : Boolean;
+  Len : LongInt;
 begin
-  TextFlag := False;
-  Flag     := F_BEGIN;
-  i := BeginPos - 1;
-
+  TextFlag   := False;
+  Flag       := F_BEGIN;
   BeginIndex := BeginPos;
-  FContent := '';
-  while i <= Length(Text) do
+  FContent   := '';
+  Len := Length(Text);
+  i   := BeginPos - 1;
+  while i < Len do
   begin
     Inc(i);
     case Flag of
     // waiting for new tag '<...'
       F_BEGIN :
-        if Text[i] = '<' then
-        begin
-          Flag := F_TAG;
-          BeginIndex := i + 1;
+        case Text[i] of
+          '<' :
+            begin
+              Flag := F_TAG;
+              BeginIndex := i + 1;
+            end;
+          '>' :
+            begin
+              Flag := F_END;
+              Dec(i);
+            end;
+        end;
+    // comments
+      F_COMMENT :
+        case Text[i] of
+          '"' :
+            TextFlag := not TextFlag;
+          '>' :
+            if not TextFlag then
+              Flag := F_BEGIN;
         end;
     // waiting for tag name '... ' or '.../' or '...>'
       F_TAG :
@@ -3970,7 +4024,7 @@ begin
             ' ' : Flag := F_PARAMS;
             '?', '!' :
               begin
-                Flag := F_BEGIN;
+                Flag := F_COMMENT;
                 continue;
               end
           else
@@ -3998,39 +4052,42 @@ begin
         end;
     // parse tag content
       F_CONTENT :
-        begin
-          case Text[i] of
-            '"' : TextFlag := not TextFlag;
-            '<' :
-              if not TextFlag then
-              begin
-                FContent := FContent + Trim(Copy(Text, BeginIndex, i - BeginIndex));
-              // is new tag or my tag closing?
-                for j := i to Length(Text) do
-                  if Text[j] = '>' then
+        case Text[i] of
+          '<' :
+            begin
+              FContent := Trim(Copy(Text, BeginIndex, i - BeginIndex));
+            // is new tag or tag closing?
+              for j := i + 1 to Length(Text) do
+                if Text[j] = '>' then
+                begin
+                  if Trim(Copy(Text, i + 1, j - i - 1)) <> '/' + FTag then
                   begin
-                    if Trim(Copy(Text, i + 1, j - i - 1)) <> '/' + FTag then
-                    begin
-                      SetLength(FNode, Length(FNode) + 1);
-                      FNode[Length(FNode) - 1] := TXML.Create(Text, i - 1);
-                      i := i + FNode[Length(FNode) - 1].DataLen;
-                      BeginIndex := i + 1;
-                    end else
-                      Flag := F_END;
-                    break;
+                    SetLength(FNode, Length(FNode) + 1);
+                    FNode[Length(FNode) - 1] := TXML.Create(Text, i);
+                    if FNode[Length(FNode) - 1].DataLen = 0 then
+                      break;
+                    i := i + FNode[Length(FNode) - 1].DataLen - 1;
+                    BeginIndex := i + 1;
+                  end else
+                  begin
+                    i := j - 1;
+                    Flag := F_END;
                   end;
-              end
+                  break;
+                end;
+            end
           end;
-        end;
     // waiting for close tag
       F_END :
         if Text[i] = '>' then
         begin
-          FDataLen := i - BeginPos;
+          FDataLen := i - BeginPos + 1;
           break;
         end;
     end;
   end;
+  if FParams = nil then
+    FParams := TXMLParams.Create('');
   FCount := Length(FNode);
 end;
 
@@ -4043,7 +4100,7 @@ begin
   Params.Free;
 end;
 
-function TXML.GetNode(const TagName: string): TXML;
+function TXML.GetNode(const TagName: WideString): TXML;
 var
   i : LongInt;
 begin
@@ -4340,7 +4397,7 @@ end;
 
 function Trim(const Str: string): string;
 begin
-  Result := TrimChars(Str, [#9, #10, #13, #32]);
+  Result := TrimChars(Str, [#9, #10, #13, #32, #34, #39]);
 end;
 
 function DeleteChars(const Str: string; Chars: TCharSet): string;
@@ -4356,6 +4413,111 @@ begin
       Result[j] := Str[i];
     end;
   SetLength(Result, j);
+end;
+
+function StrReplace(const Str, FromStr, ToStr: WideString): WideString;
+var
+  i : LongInt;
+begin
+  Result := Str;
+  i := Pos(FromStr, Result);
+  while i > 0 do
+  begin
+    Delete(Result, i, Length(FromStr));
+    Insert(ToStr, Result, i);
+    i := Pos(FromStr, Result);
+  end;
+end;
+
+function ParseTrim(const Str: string): string;
+var
+  i : LongInt;
+begin
+  Result := Str;
+  for i := 1 to Length(Result) do
+    if (Result[i] = #9) or (Result[i] = #13) or (Result[i] = #10) then
+      Result[i] := ' ';
+
+  i := Pos('  ', Result);
+  while i > 0 do
+  begin
+    Delete(Result, i, 1);
+    i := Pos('  ', Result);
+  end;
+
+  if (Length(Result) > 0) and (Result[1] = ' ') then
+    Result := Copy(Result, 2, Length(Result));
+  if (Length(Result) > 0) and (Result[Length(Result)] = ' ') then
+    Result := Copy(Result, 1, Length(Result) - 1);
+end;
+
+function ParseCount(const Str: string): LongInt;
+var
+  i : LongInt;
+begin
+  Result := 1;
+  for i := 1 to Length(Str) do
+    if Str[i] = ' ' then
+      Result := Result + 1;
+end;
+
+function ParseNext(const Str: string; var Pos: LongInt): string;
+var
+  i : LongInt;
+begin
+  for i := Pos to Length(Str) + 1 do
+    if (Str[i] = ' ') or (i > Length(Str)) then
+    begin
+      Result := Copy(Str, Pos, i - Pos);
+      Pos := i + 1;
+      Exit;
+    end;
+end;
+
+function ParseFloat(Str: string): TFloatArray;
+var
+  i, Pos : LongInt;
+begin
+  Str := ParseTrim(Str);
+  SetLength(Result, ParseCount(Str));
+  Pos := 1;
+  for i := 0 to Length(Result) - 1 do
+    Result[i] := Conv(ParseNext(Str, Pos), 0.0);
+end;
+
+function ParseInt(Str: string): TIntArray;
+var
+  i, Pos : LongInt;
+begin
+  Str := ParseTrim(Str);
+  SetLength(Result, ParseCount(Str));
+  Pos := 1;
+  for i := 0 to Length(Result) - 1 do
+    Result[i] := Conv(ParseNext(Str, Pos), 0);
+end;
+
+function ParseStr(Str: string): TStrArray;
+var
+  i, Pos : LongInt;
+begin
+  Str := ParseTrim(Str);
+  SetLength(Result, ParseCount(Str));
+  Pos := 1;
+  for i := 0 to Length(Result) - 1 do
+    Result[i] := ParseNext(Str, Pos);
+end;
+
+function ParseSize(Str: string): TSize;
+const
+  DefSize: TSize = (Left: 0; Top: 0; Width: 64; Height: 64);
+var
+  IntArray : TIntArray;
+begin
+  IntArray := ParseInt(Str);
+  if Length(IntArray) = 4 then
+    Result := TSize(Pointer(@IntArray[0])^)
+  else
+    Result := DefSize;
 end;
 
 function ExtractFileDir(const Path: string): string;
@@ -4568,10 +4730,7 @@ begin
         Screen.FWidth  := Rect.Right - Rect.Left;
         Screen.FHeight := Rect.Bottom - Rect.Top;
         if GUI <> nil then
-        begin
-          GUI.Resize(0, 0, Screen.Width, Screen.Height);
-          GUI.Realign;
-        end;
+          GUI.Move(0, 0, Screen.Width, Screen.Height);
         {$ENDIF}
       //  Screen.Resize(Word(LParam), Word(LParam shr 16));
       end;
@@ -4746,6 +4905,7 @@ begin
     nVersion     := 1;
     dwFlags      := $25;
     cColorBits   := 32;
+    cAlphaBits   := 8;
     cDepthBits   := 24;
     cStencilBits := 8;
   end;
@@ -5645,9 +5805,9 @@ begin
     cmTarget :
       begin
         ViewMatrix.Pos := Vec3f(0, 0, -Dist);
+        ViewMatrix.Rotate(Angle.z, Vec3f(0, 0, 1));
         ViewMatrix.Rotate(Angle.x, Vec3f(1, 0, 0));
         ViewMatrix.Rotate(Angle.y, Vec3f(0, 1, 0));
-        ViewMatrix.Rotate(Angle.z, Vec3f(0, 0, 1));
         ViewMatrix.Translate(Pos * -1);
       end;
     cmLookAt :
@@ -6114,8 +6274,8 @@ type
     dwWidth       : LongWord;
     dwPOLSize     : LongWord;
     dwDepth       : LongWord;
-    dwMipMapCount : LongInt;
-    SomeData1   : array [0..11] of LongWord;
+    dwMipMapCount : LongInt; 
+    SomeData1   : array [0..11] of LongWord; 
     pfFlags     : LongWord;
     pfFourCC    : LongWord;
     pfRGBbpp    : LongWord;
@@ -6488,20 +6648,20 @@ end;
 {$ENDREGION}
 
 {$REGION 'TShader'}
-class function TShader.Load(const FileName: string; const Defines: array of string): TShader;
+class function TShader.Load(const FileName: string; const Defines: array of AnsiString): TShader;
 var
   i : LongInt;
-  DefinesStr : string;
+  DefinesStr : AnsiString;
 begin
   DefinesStr := '';
   for i := 0 to Length(Defines) - 1 do
     DefinesStr := DefinesStr + '*' + Defines[i];
-  Result := TShader(ResManager.GetRef(FileName + EXT_XSH + DefinesStr));
+  Result := TShader(ResManager.GetRef(FileName + EXT_XSH + string(DefinesStr)));
   if Result = nil then
     Result := TShader.Create(FileName + EXT_XSH, Defines);
 end;
 
-constructor TShader.Create(const FileName: string; const Defines: array of string);
+constructor TShader.Create(const FileName: string; const Defines: array of AnsiString);
 
   procedure InfoLog(Obj: LongWord; IsProgram: Boolean);
   var
@@ -6551,7 +6711,7 @@ var
   Stream : TStream;
   Source  : AnsiString;
   CSource : AnsiString;
-  DefinesStr : string;
+  DefinesStr : AnsiString;
 begin
   inherited Create(FileName);
 
@@ -6600,7 +6760,7 @@ begin
   gl.DeleteProgram(FID);
 end;
 
-function TShader.Uniform(const UName: string; UniformType: TShaderUniformType): TShaderUniform;
+function TShader.Uniform(UniformType: TShaderUniformType; const UName: string): TShaderUniform;
 var
   i : LongInt;
 begin
@@ -6615,7 +6775,7 @@ begin
   FUniform[Length(FUniform) - 1] := Result;
 end;
 
-function TShader.Attrib(const AName: string; AttribType: TShaderAttribType; Norm: Boolean = False): TShaderAttrib;
+function TShader.Attrib(AttribType: TShaderAttribType; const AName: string; Norm: Boolean = False): TShaderAttrib;
 var
   i : LongInt;
 begin
@@ -6663,7 +6823,7 @@ var
   Stream : TStream;
   ShaderName  : string;
   SamplerName : string;
-  Defines : array of string;
+  Defines : array of AnsiString;
   rm      : TRenderMode;
 begin
   inherited Create(FileName);
@@ -6675,7 +6835,7 @@ begin
   Stream.Read(DCount, SizeOf(DCount));
   SetLength(Defines, DCount + 1);
   for i := 0 to DCount - 1 do
-    Defines[i] := string(Stream.ReadAnsi);
+    Defines[i] := Stream.ReadAnsi;
   Defines[DCount] := 'MODE_NORMAL';
   Shader := TShader.Load(ShaderName, Defines);
 
@@ -6717,13 +6877,13 @@ begin
         Shader.Bind;
         for ms in Samplers do
           with SamplerID[ms] do
-            Shader.Uniform(Name, utInt).Value(ID);
+            Shader.Uniform(utInt, Name).Value(ID);
         for ma := Low(ma) to High(ma) do
           with AttribID[ma] do
-            Attrib[ma] := Shader.Attrib(Name, AType, Norm);
+            Attrib[ma] := Shader.Attrib(AType, Name, Norm);
         for mu := Low(mu) to High(mu) do
           with UniformID[mu] do
-            Uniform[mu] := Shader.Uniform(Name, UType);
+            Uniform[mu] := Shader.Uniform(UType, Name);
       end;
 end;
 
@@ -6765,6 +6925,19 @@ begin
         case Render.Mode of
           rmOpaque, rmOpacity :
             begin
+              gl.ActiveTexture(GL_TEXTURE0);
+              gl.MatrixMode(GL_TEXTURE);
+              gl.LoadIdentity;
+{
+              with Params.Sampler[msDiffuse] do
+              begin
+                gl.LoadIdentity;
+                gl.Scalef(RepeatUV.x, -RepeatUV.y, 1);
+                gl.Translatef(OffsetUV.x, -OffsetUV.y, 0);
+                gl.Rotatef(RotateUV, 0, 0, 1);
+              end;
+}
+              gl.MatrixMode(GL_MODELVIEW);
               for i := 0 to MAX_LIGHTS - 1 do
               begin
                 LightPos[i]     := Render.Light[i].Pos;
@@ -7495,7 +7668,7 @@ end;
 
 procedure TMesh.onRender;
 const
-  AttribSize : array [TMaterialAttrib] of LongInt = (12, 4, 4, 4, 4, 4, 4);
+  AttribSize : array [TMaterialAttrib] of LongInt = (12, 4, 4, 8, 8, 4, 4);
   IndexType  : array [1..4] of TGLConst = (GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT, GL_FALSE, GL_UNSIGNED_INT);
   MeshMode   : array [TMeshMode] of TGLConst = (GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_LINES);
 var
@@ -7505,7 +7678,7 @@ var
 begin
   if (Material = nil) or
      (Material.ModeMat[Render.Mode] = nil) or
-     (Material.Params.Mode <> Render.Mode) then
+     ((Material.Params.Mode <> Render.Mode) and (Render.Mode <> rmShadow)) then
     Exit;
   Material.Bind;
 // collect skin joints
@@ -7517,7 +7690,7 @@ begin
         Skeleton.UpdateJoint(JIndex[i]);
         JQuat[i] := Skeleton.Joint[JIndex[i]] * Skeleton.Data.Base[JIndex[i]].Bind;
       end;
-    Material.Uniform[muJoint].Value(JQuat[0], Length(JQuat) * 2);
+    Material.ModeMat[Render.Mode].Uniform[muJoint].Value(JQuat[0], Length(JQuat) * 2);
   end;
 
   with Data do
@@ -7639,13 +7812,48 @@ end;
 // GUI =========================================================================
 {$REGION 'TControl'}
 {$IFNDEF NO_GUI}
-constructor TControl.Create(Left, Top, Width, Height: LongInt);
+constructor TControl.CreateCopy(Parent, Ctrl: TControl);
+var
+  i : LongInt;
 begin
-  Resize(Left, Top, Width, Height);
-  Align   := alNone;
-  Visible := True;
-  Enabled := True;
-  Color   := Vec4f(0.5, 0.5, 0.5, 1.0);
+  Params := Ctrl.Params;
+  if Parent <> nil then
+    Parent.AddCtrl(Self)
+  else
+    UpdateRect;
+  for i := 0 to Length(Ctrl.Controls) - 1 do
+    AddCtrl(TControl(Ctrl.Controls[i].ClassType).CreateCopy(Self, Ctrl.Controls[i]));
+end;
+
+constructor TControl.CreateXML(Parent: TControl; XML: TXML);
+begin
+  Params.Size    := ParseSize(XML.Params['size']);
+  Params.Alpha   := Conv(XML.Params['alpha'], 1.0);
+  Params.Visible := XML.Params['visible'] <> '0';
+  Params.Enabled := XML.Params['enabled'] <> '0';
+  Params.TabStop := Conv(XML.Params['tab'], 0);
+  Params.Group   := Conv(XML.Params['group'], 0);
+  Params.Tag     := Conv(XML.Params['tag'], 0);
+  Params.Name    := XML.Params['name'];
+  Params.Text    := XML.Params['text'];
+  if Parent <> nil then
+    Parent.AddCtrl(Self)
+  else
+    UpdateRect;
+end;
+
+
+constructor TControl.Create(Parent: TControl);
+begin
+  Params.Size.Left   := 0;
+  Params.Size.Top    := 0;
+  Params.Size.Width  := -1;
+  Params.Size.Height := -1;
+  Params.Visible := True;
+  if Parent <> nil then
+    Parent.AddCtrl(Self)
+  else
+    UpdateRect;
 end;
 
 destructor TControl.Destroy;
@@ -7655,135 +7863,58 @@ begin
   inherited;
 end;
 
-procedure TControl.Resize(Left, Top, Width, Height: LongInt);
-begin
-  Params.Left   := Left;
-  Params.Top    := Top;
-  Params.Width  := Width;
-  Params.Height := Height;
-end;
+procedure TControl.UpdateRect;
 
-procedure TControl.Realign;
-var
-  CtrlSize : array [alLeft..alBottom] of LongInt;
-
-  procedure DoAlign(CurAlign: TAlign);
-  var
-    i : LongInt;
+  function ClampValue(Value, Clamp: SmallInt): SmallInt;
   begin
-    for i := 0 to Length(Controls) - 1 do
-      with Controls[i] do
-        if Visible and (Align = CurAlign) then
-          case Align of
-            alLeft   :
-              begin
-                Resize(CtrlSize[alLeft], CtrlSize[alTop], Width, CtrlSize[alBottom] - CtrlSize[alTop]);
-                Inc(CtrlSize[alLeft], Width);
-              end;
-            alRight  :
-              begin
-                Dec(CtrlSize[alRight], Width);
-                Resize(CtrlSize[alRight], CtrlSize[alTop], Width, CtrlSize[alBottom] - CtrlSize[alTop]);
-              end;
-            alTop    :
-              begin
-                Resize(CtrlSize[alLeft], CtrlSize[alTop], CtrlSize[alRight] - CtrlSize[alLeft], Height);
-                Inc(CtrlSize[alTop], Height);
-              end;
-            alBottom :
-              begin
-                Dec(CtrlSize[alBottom], Height);
-                Resize(CtrlSize[alLeft], CtrlSize[alBottom], CtrlSize[alRight] - CtrlSize[alLeft], Height);
-              end;
-            alClient : Resize(CtrlSize[alLeft], CtrlSize[alTop], CtrlSize[alRight] - CtrlSize[alLeft], CtrlSize[alBottom] - CtrlSize[alTop]);
-          else
-            Resize(Left, Top, Width, Height);
-          end;
+    if Value >= 0 then
+      Result := Value
+    else
+      Result := Clamp + Value;
   end;
 
 var
-  i  : LongInt;
+  i : LongInt;
 begin
-  if Length(Controls) > 0 then
+  if Parent = nil then
   begin
-    CtrlSize[alLeft]   := 0;
-    CtrlSize[alTop]    := 0;
-    CtrlSize[alRight]  := Width;
-    CtrlSize[alBottom] := Height;
-    DoAlign(alTop);
-    DoAlign(alBottom);
-    DoAlign(alLeft);
-    DoAlign(alRight);
-    DoAlign(alClient);
-    for i := 0 to Length(Controls) - 1 do
-      Controls[i].Realign;
+    RSize.Left   := ClampValue(Params.Size.Left,   Screen.Width);
+    RSize.Top    := ClampValue(Params.Size.Top,    Screen.Height);
+    RSize.Width  := ClampValue(Params.Size.Width,  Screen.Width + 1);
+    RSize.Height := ClampValue(Params.Size.Height, Screen.Height + 1);
+  end else
+  begin
+    RSize.Left   := ClampValue(Params.Size.Left,   Parent.Width);
+    RSize.Top    := ClampValue(Params.Size.Top,    Parent.Height);
+    RSize.Width  := ClampValue(Params.Size.Width,  Parent.Width + 1);
+    RSize.Height := ClampValue(Params.Size.Height, Parent.Height + 1);
   end;
-end;
 
-procedure TControl.SetAlign(const Value: TAlign);
-const
-  AnchorAlign : array [TAlign] of TAnchors = (
-    [akLeft, akTop],
-    [akLeft, akTop, akRight],
-    [akLeft, akRight, akBottom],
-    [akLeft, akTop, akBottom],
-    [akRight, akTop, akBottom],
-    [akLeft, akTop, akRight, akBottom]
-  );
-begin
-  Params.Align := Value;
-  Anchors := AnchorAlign[Value];
-  if Parent <> nil then
-    Parent.Realign
-  else
-    Realign;
-end;
-
-procedure TControl.SetAnchors(const Value: TAnchors);
-begin
-  Params.Anchors := Value;
-  Realign;
-end;
-
-procedure TControl.SetLeft(const Value: LongInt);
-begin
-  Params.Left := Value;
-  Realign;
-end;
-
-procedure TControl.SetTop(const Value: LongInt);
-begin
-  Params.Top := Value;
-  Realign;
-end;
-
-procedure TControl.SetWidth(const Value: LongInt);
-begin
-  Params.Width := Value;
-  Realign;
-end;
-
-procedure TControl.SetHeight(const Value: LongInt);
-begin
-  Params.Height := Value;
-  Realign;
-end;
-
-function TControl.GetRect: TRect;
-begin
-  Result.Left   := Left;
-  Result.Top    := Top;
-  Result.Right  := Left + Width;
-  Result.Bottom := Top + Height;
+  ARect.Left   := Left;
+  ARect.Top    := Top;
+  ARect.Right  := Left + Width;
+  ARect.Bottom := Top + Height;
 
   if Parent <> nil then
     with Parent.Rect do
     begin
-      Result.Left   := Result.Left + Left;
-      Result.Top    := Result.Top + Top;
-      Result.Right  := Result.Right + Left;
-      Result.Bottom := Result.Bottom + Top;
+      ARect.Left   := ARect.Left + Left;
+      ARect.Top    := ARect.Top + Top;
+      ARect.Right  := ARect.Right + Left;
+      ARect.Bottom := ARect.Bottom + Top;
     end;
+
+  for i := 0 to Length(Controls) - 1 do
+    Controls[i].UpdateRect;
+end;
+
+procedure TControl.Move(Left, Top, Width, Height: LongInt);
+begin
+  Params.Size.Left   := Left;
+  Params.Size.Top    := Top;
+  Params.Size.Width  := Width;
+  Params.Size.Height := Height;
+  UpdateRect;
 end;
 
 function TControl.AddCtrl(const Ctrl: TControl): TControl;
@@ -7792,7 +7923,7 @@ begin
   SetLength(Controls, Length(Controls) + 1);
   Controls[Length(Controls) - 1] := Ctrl;
   Ctrl.FParent := Self;
-  Realign;
+  Ctrl.UpdateRect;
 end;
 
 function TControl.DelCtrl(const Ctrl: TControl): Boolean;
@@ -7825,7 +7956,6 @@ begin
           tc := Controls[i];
           Controls[i] := Controls[Length(Controls) - 1];
           Controls[Length(Controls) - 1] := tc;
-          Realign;
           break;
         end;
 end;
@@ -7834,20 +7964,8 @@ procedure TControl.OnRender;
 var
   i : LongInt;
 begin
-  if Color.w > EPS then
-    with Rect do
-    begin
-      gl.Beginp(GL_TRIANGLE_STRIP);
-        gl.Color4fv(Color);
-        gl.Vertex2f(Left, Top);
-        gl.Vertex2f(Right, Top);
-        gl.Vertex2f(Left, Bottom);
-        gl.Vertex2f(Right, Bottom);
-      gl.Endp;
-    end;
-
   for i := 0 to Length(Controls) - 1 do
-    if Controls[i].Visible then
+    if Controls[i].Params.Visible then
       Controls[i].OnRender;
 end;
 
@@ -7858,30 +7976,89 @@ end;
 {$ENDIF}
 {$ENDREGION}
 
-{$REGION 'TGUI'}
-{$IFNDEF NO_GUI}
-constructor TGUI.Create(Left, Top, Width, Height: LongInt);
+{$REGION 'TImage'}
+constructor TImage.CreateCopy(Parent, Ctrl: TControl);
 begin
   inherited;
-  Color.w := 0;
+  TexRect := TImage(Ctrl).TexRect;
+  Texture := TImage(Ctrl).Texture;
+  Inc(Texture.Ref);
+end;
+
+constructor TImage.CreateXML(Parent: TControl; XML: TXML);
+var
+  TexName  : WideString;
+  TexFrame : TSize;
+  ks, kt : Single;
+begin
+  inherited;
+  TexName := XML.Params['texture'];
+  if TexName = '' then
+  begin
+    Texture := GUI.Texture;
+    if Texture <> nil then
+      Inc(Texture.Ref);
+  end else
+    Texture := TTexture.Load(XML.Params['texture']);
+  TexFrame := ParseSize(XML.Params['frame']);
+
+  ks := 1 / Texture.Width;
+  kt := 1 / Texture.Height;
+
+  TexRect.x := ks * (TexFrame.Left);
+  TexRect.y := kt * (TexFrame.Top);
+  TexRect.z := ks * (TexFrame.Left + TexFrame.Width);
+  TexRect.w := kt * (TexFrame.Top + TexFrame.Height);
+end;
+
+procedure TImage.OnRender;
+begin
+  if Texture = nil then
+    Exit;
+  Render.ResetBind;
+  Render.CullFace := cfNone;
+  Render.DepthTest := False;
+  gl.Color3f(1, 1, 1);
+  with TexRect, Rect do
+  begin
+    Texture.Bind;
+    gl.Beginp(GL_QUADS);
+      gl.TexCoord2f(x, y); gl.Vertex2f(Left, Top);
+      gl.TexCoord2f(x, w); gl.Vertex2f(Left, Bottom);
+      gl.TexCoord2f(z, w); gl.Vertex2f(Right, Bottom);
+      gl.TexCoord2f(z, y); gl.Vertex2f(Right, Top);
+    gl.Endp;
+  end;
+end;
+{$ENDREGION}
+
+{$REGION 'TGUI'}
+{$IFNDEF NO_GUI}
+constructor TGUI.Create;
+begin
+  inherited Create(nil);
   // Skin blablabla
 end;
 
 destructor TGUI.Destroy;
 begin
-  if Skin <> nil then
-    Skin.Free;
+  if Texture <> nil then
+    Texture.Free;
   inherited;
 end;
 
 procedure TGUI.OnRender;
+var
+  VP : TRect;
 begin
   Render.DepthTest := False;
   Render.CullFace  := cfNone;
   Render.ResetBind;
-  Render.Viewport := CoreX.Rect(0, 0, Screen.Width, Screen.Height);
-  Render.Set2D(0, Screen.Height, Screen.Width, 0);
+  VP := Render.Viewport;
+  Render.Viewport := Rect;
+  Render.Set2D(Rect.Left, Rect.Bottom - Rect.Top, Rect.Right - Rect.Left, Rect.Left);
   inherited;
+  Render.Viewport := VP;
 end;
 {$ENDIF}
 {$ENDREGION}
@@ -8150,7 +8327,7 @@ end;
 {$REGION 'TScene'}
 {$IFNDEF NO_SCENE}
 const
-  SHADOW_SIZE = 512;
+  SHADOW_SIZE = 1024;
 
 procedure TScene.Init;
 const
@@ -8160,9 +8337,10 @@ const
   GL_DEPTH_TEXTURE_MODE = TGLConst($884B);
 begin
   Node := TNode.Create('main');
-//    ShadowTex[i] := TTexture.Create(SHADOW_SIZE, SHADOW_SIZE, nil, GL_RGBA, GL_RGBA8);
+
+//  ShadowTex := TTexture.Create(SHADOW_SIZE, SHADOW_SIZE, nil, GL_RGBA, GL_RGBA8);
   ShadowTex := TTexture.Create(SHADOW_SIZE, SHADOW_SIZE, nil, GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT24);
-  ShadowTex.Bind();
+  ShadowTex.Bind;
   gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_R_TO_TEXTURE);
   ShadowTex.Clamp := True;
   ShadowTex.Filter := tfBilinear;
@@ -8191,6 +8369,7 @@ var
   MainCamera  : TCamera;
   LightCamera : TCamera;
   OldRT : TRenderTarget;
+  VP : TRect;
 begin
   MainCamera := Render.Camera;
   MainCamera.UpdateMatrix;
@@ -8223,15 +8402,18 @@ begin
     Render.DepthTest := True;
 
   // render shadow map
-    Render.Mode := rmShadow;
+    VP := Render.Viewport;
+    Render.Viewport := Rect(0, 0, SHADOW_SIZE, SHADOW_SIZE);
+
     OldRT := Render.Target;
     Render.Target := ShadowRT;
-    Render.Viewport := Rect(0, 0, SHADOW_SIZE, SHADOW_SIZE);
     Render.Camera := LightCamera;
     Render.Camera.Setup;
-    Render.Clear(False, True);
+    Render.Clear(True, True);
+    Render.Mode := rmShadow;
     Node.OnRender;
     Render.Target := OldRT;
+    Render.Viewport := VP;
 
     Render.DepthTest := True;
     Render.Light[0].ShadowMap := ShadowTex;
@@ -8244,7 +8426,6 @@ begin
   gl.SampleCoverage(0.75, False);
 }
   Render.DepthTest := True;
-  Render.Viewport := Rect(0, 0, Screen.Width, Screen.Height);
   Render.Camera := MainCamera;
   Render.Camera.Setup;
   Render.Mode := rmOpaque;
