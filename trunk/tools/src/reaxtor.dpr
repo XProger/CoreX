@@ -444,10 +444,10 @@ end;
 
 procedure OnRender;
 begin
-  Sleep(10);
+//  Sleep(10);
 //  Render.Mode := rmShadow;
   Render.Clear(True, True);
-//  Scene.Shadows := True;
+  Scene.Shadows := True;
   GUI.OnRender;
 
 // Statistics
@@ -469,6 +469,6 @@ begin
   FileSys.PathAdd('media/landscape/');
 
   ReportMemoryLeaksOnShutdown := True;
-//  Screen.AntiAliasing := aa4x;
+  Screen.AntiAliasing := aa4x;
   CoreX.Start(@OnInit, @OnFree, @OnRender);
 end.
