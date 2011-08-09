@@ -623,7 +623,7 @@ end;
 procedure TNodeMesh.Save(const FileName: string);
 const
   Mode : TMeshMode = mmTriList;
-  AttribSize : array [TMaterialAttrib] of LongInt = (12, 4, 4, 4, 4, 4, 4);
+  AttribSize : array [TMaterialAttrib] of LongInt = (12, 4, 4, 8, 8, 4, 4);
 var
   Stream : TStream;
   ma : TMaterialAttrib;
@@ -693,9 +693,10 @@ begin
                     v2f := TexCoord[0]
                   else
                     v2f := TexCoord[1];
-                  v2s.x := Clamp(LongInt(Round(v2f.x * 1024)), Low(SmallInt), High(SmallInt));
-                  v2s.y := Clamp(LongInt(Round(v2f.y * 1024)), Low(SmallInt), High(SmallInt));
-                  Stream.Write(v2s, SizeOf(v2s));
+//                  v2s.x := Clamp(LongInt(Round(v2f.x * 1024)), Low(SmallInt), High(SmallInt));
+  //                v2s.y := Clamp(LongInt(Round(v2f.y * 1024)), Low(SmallInt), High(SmallInt));
+    //              Stream.Write(v2s, SizeOf(v2s));
+                  Stream.Write(v2f, SizeOf(v2f))
                 end;
               maColor :
                 begin
