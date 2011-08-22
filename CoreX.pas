@@ -16,12 +16,12 @@ interface
 
 {$DEFINE FPS_CAPTION}
 
-//{$DEFINE NO_SOUND}
-//{$DEFINE NO_GUI}
-//{$DEFINE NO_SCENE}
+{$DEFINE NO_SOUND}
+{$DEFINE NO_GUI}
+{$DEFINE NO_SCENE}
 //{$DEFINE NO_FILESYS}
-//{$DEFINE NO_MATERIAL}
-//{$DEFINE NO_MESH}
+{$DEFINE NO_MATERIAL}
+{$DEFINE NO_MESH}
 {$DEFINE NO_SPRITE}
 {$DEFINE NO_INPUT_JOY}
 
@@ -295,6 +295,8 @@ const
   function Quat(Angle: Single; const Axis: TVec3f): TQuat; overload;
   function DualQuat(const qRot: TQuat; const qPos: TVec3f): TDualQuat; inline;
   function Mat4f(Angle: Single; const Axis: TVec3f): TMat4f;
+  function Polar(x: Single): TVec2f; overload;
+  function Polar(x, y: Single): TVec3f; overload;
   function Min(x, y: LongInt): LongInt; overload; inline;
   function Min(x, y: Single): Single; overload; inline;
   function Max(x, y: LongInt): LongInt; overload; inline;
@@ -802,6 +804,8 @@ type
     GL_TEXTURE_CUBE_MAP = $8513, GL_TEXTURE_CUBE_MAP_POSITIVE_X = $8515, GL_TEXTURE_CUBE_MAP_NEGATIVE_X, GL_TEXTURE_CUBE_MAP_POSITIVE_Y, GL_TEXTURE_CUBE_MAP_NEGATIVE_Y, GL_TEXTURE_CUBE_MAP_POSITIVE_Z, GL_TEXTURE_CUBE_MAP_NEGATIVE_Z,
   // Compressed Textures
     GL_COMPRESSED_RGB_S3TC_DXT1 = $83F0, GL_COMPRESSED_RGBA_S3TC_DXT1, GL_COMPRESSED_RGBA_S3TC_DXT3, GL_COMPRESSED_RGBA_S3TC_DXT5,
+  // POINT SPRITE
+    GL_POINT_SPRITE = $8861, GL_VERTEX_PROGRAM_POINT_SIZE = $8642,
   // FBO
     GL_FRAMEBUFFER = $8D40, GL_RENDERBUFFER, GL_COLOR_ATTACHMENT0 = $8CE0, GL_DEPTH_ATTACHMENT = $8D00, GL_FRAMEBUFFER_BINDING = $8CA6, GL_FRAMEBUFFER_COMPLETE = $8CD5,
   // Shaders
@@ -1666,7 +1670,6 @@ type
     Mesh : TMesh;
     procedure OnRender; override;
   end;
-{$ENDIF}
 
   TModelNode = class(TNode)
     class function Load(const FileName: string): TModelNode;
@@ -1676,6 +1679,7 @@ type
     procedure OnRender; override;
     procedure ResetSkeleton;
   end;
+{$ENDIF}
 {$ENDREGION}
 
 // Terrain ---------------------------------------------------------------------
@@ -3291,6 +3295,22 @@ begin
   end;
 end;
 
+function Polar(x: Single): TVec2f;
+begin
+  SinCos(x, Result.x, Result.y);
+end;
+
+function Polar(x, y: Single): TVec3f;
+var
+  sx, sy, cx, cy : Single;
+begin
+  SinCos(x, sx, cx);
+  SinCos(y, sy, cy);
+  Result.x := sy * cx;
+  Result.y := -sx;
+  Result.z := cy * cx;
+end;
+
 function Min(x, y: LongInt): LongInt;
 begin
   if x < y then
@@ -4599,6 +4619,7 @@ end;
 procedure TFileSys.Init;
 begin
   chdir(ExtractFileDir(ParamStr(0)));
+  Clear;
 end;
 
 function TFileSys.Open(const FileName: string; RW: Boolean): TStream;
@@ -4698,8 +4719,8 @@ end;
 function WndProc(Hwnd, Msg: LongWord; WParam, LParam: LongInt): LongInt; stdcall;
 const
   MaxPoint : TPoint = (X: 10000; Y: 10000);
-var
-  Rect : TRect;
+//var
+//  Rect : TRect;
 begin
   Result := 0;
   case Msg of
@@ -4928,6 +4949,7 @@ begin
     ReleaseDC(PHandle, DC);
     DestroyWindow(PHandle);
   end;
+
   FCustom := Handle <> 0;
 // Window
   if not FCustom then
@@ -7977,6 +7999,7 @@ end;
 {$ENDREGION}
 
 {$REGION 'TImage'}
+{$IFNDEF NO_GUI}
 constructor TImage.CreateCopy(Parent, Ctrl: TControl);
 begin
   inherited;
@@ -8030,6 +8053,7 @@ begin
     gl.Endp;
   end;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 {$REGION 'TGUI'}
@@ -8273,6 +8297,7 @@ end;
 {$ENDREGION}
 
 {$REGION 'TModelNode'}
+{$IFNDEF NO_MESH}
 class function TModelNode.Load(const FileName: string): TModelNode;
 var
   Stream : TStream;
@@ -8321,6 +8346,7 @@ begin
         if Mesh <> nil then
           Mesh.Skeleton := Skeleton;
 end;
+{$ENDIF}
 {$ENDREGION}
 
 // Scene =======================================================================
@@ -8621,13 +8647,6 @@ begin
 }
     end;
   end;
-{$IFDEF WINDOWS}
-  Set8087CW($133F);
-{$ELSE}
-  {$IF DEFINED(cpui386) OR DEFINED(cpux86_64)}
-  //  SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
-  {$IFEND}
-{$ENDIF}
 end;
 
 procedure TGL.Free;
@@ -8712,5 +8731,14 @@ begin
   end;
 end;
 {$ENDREGION}
+
+initialization
+{$IFDEF WINDOWS}
+  Set8087CW($133F);
+{$ELSE}
+  {$IF DEFINED(cpui386) OR DEFINED(cpux86_64)}
+  //  SetExceptionMask([exInvalidOp, exDenormalized, exZeroDivide, exOverflow, exUnderflow, exPrecision]);
+  {$IFEND}
+{$ENDIF}
 
 end.
